@@ -1805,20 +1805,51 @@ function luna_widget_fetch_hub_data($force_refresh = false) {
             $final_data['data']['client_streams'][$stream_id] = $stream;
             $final_data['data']['client_streams'][$stream_id]['_source'] = 'data-streams';
           } else {
+            // Merge any missing or empty fields from data-streams into the existing all-connections stream
+            $existing_stream = &$final_data['data']['client_streams'][$stream_id];
+
+            foreach ($stream as $key => $value) {
+              $existing_value = isset($existing_stream[$key]) ? $existing_stream[$key] : null;
+
+              $is_missing = !isset($existing_stream[$key]);
+              $is_empty_array = is_array($existing_value) && empty($existing_value);
+              $is_empty_scalar = !is_array($existing_value) && ($existing_value === '' || $existing_value === null);
+
+              if ($is_missing || $is_empty_array || $is_empty_scalar) {
+                $existing_stream[$key] = $value;
+              } elseif (is_array($existing_value) && is_array($value) && !empty($value)) {
+                // Preserve existing values but add any additional keys from data-streams
+                $existing_stream[$key] = array_merge($value, $existing_value);
+              }
+            }
+
             // Mark as cross-referenced
-            $final_data['data']['client_streams'][$stream_id]['_cross_referenced'] = true;
-            $final_data['data']['client_streams'][$stream_id]['_sources'] = array('all-connections', 'data-streams');
+            $existing_stream['_cross_referenced'] = true;
+            $existing_stream['_sources'] = array('all-connections', 'data-streams');
           }
         }
       }
-      
+
       // Add any other top-level data from data-streams that doesn't exist in all_connections
       foreach ($streams_data['data'] as $key => $value) {
-        if ($key !== 'client_streams' && !isset($final_data['data'][$key])) {
+        if ($key === 'client_streams') {
+          continue;
+        }
+
+        $existing_value = isset($final_data['data'][$key]) ? $final_data['data'][$key] : null;
+        $is_missing = !isset($final_data['data'][$key]);
+        $is_empty_array = is_array($existing_value) && empty($existing_value);
+        $is_empty_scalar = !is_array($existing_value) && ($existing_value === '' || $existing_value === null);
+
+        if ($is_missing || $is_empty_array || $is_empty_scalar) {
           $final_data['data'][$key] = $value;
           if (is_array($value)) {
             $final_data['data'][$key]['_source'] = 'data-streams';
           }
+        } elseif (is_array($existing_value) && is_array($value) && !empty($value)) {
+          // Merge supplemental metadata while keeping all-connections values authoritative
+          $final_data['data'][$key] = array_merge($value, $existing_value);
+          $final_data['data'][$key]['_sources'] = array('all-connections', 'data-streams');
         }
       }
     }
@@ -1845,7 +1876,13 @@ function luna_widget_fetch_hub_data($force_refresh = false) {
     error_log('[Luna Widget] No data retrieved from either endpoint');
     return null;
   }
-  
+
+  // Attach raw payloads so downstream consumers (Luna Chat/Compose) can see everything
+  $final_data['_raw_sources'] = array(
+    'all_connections' => $merged_data['all_connections'],
+    'data_streams'    => $merged_data['data_streams'],
+  );
+
   // Cache the merged data
   set_transient($cache_key, $final_data, LUNA_CACHE_PROFILE_TTL);
   
@@ -1894,7 +1931,14 @@ function luna_widget_get_comprehensive_facts() {
     ),
     'comprehensive' => true,
     'profile_data' => $profile_data,
+    'raw_hub_payloads' => array(),
   );
+
+  // Preserve raw hub payloads for downstream analysis
+  if (isset($hub_data['_raw_sources']) && is_array($hub_data['_raw_sources'])) {
+    $facts['raw_hub_payloads'] = $hub_data['_raw_sources'];
+  }
+  $facts['raw_hub_payloads']['merged'] = $hub_data;
   
   // Extract WordPress data if available - check ALL possible locations
   $wordpress_data = null;
@@ -2930,7 +2974,18 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
       $facts_text .= "\n";
     }
   }
-  
+
+  // Include full raw payloads so GPT has access to every field coming from VL Hub
+  if (!empty($facts['raw_hub_payloads']) && is_array($facts['raw_hub_payloads'])) {
+    $facts_text .= "\nRAW HUB JSON SNAPSHOT (VERBATIM):\n";
+    foreach (array('all_connections' => 'ALL CONNECTIONS ENDPOINT', 'data_streams' => 'DATA STREAMS ENDPOINT', 'merged' => 'MERGED PAYLOAD USED BY LUNA') as $raw_key => $label) {
+      if (!empty($facts['raw_hub_payloads'][$raw_key])) {
+        $facts_text .= "--- " . $label . " ---\n";
+        $facts_text .= wp_json_encode($facts['raw_hub_payloads'][$raw_key], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n\n";
+      }
+    }
+  }
+
   // Allow Composer to enhance facts_text
   if ($is_composer) {
     $facts_text = apply_filters('luna_composer_facts_text', $facts_text, $facts);
