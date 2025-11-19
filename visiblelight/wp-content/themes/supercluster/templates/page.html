@@ -1,0 +1,99 @@
+<!-- wp:group {"layout":{"inherit":true},"className":"notification-toolbar"}} -->
+<div class="notification-toolbar">
+    <p class="leftalign">Visible Light is now accepting registrations for early adopters<span id="earlyLaunch" class="icon-notify"><a href="/early-adopter-registration">Register Now</a></span>.</p>
+    <p class="rightalign"><a href="/auth">Log In</a> <span class="separator">|</span> <a href="/auth">Sign Up</a></p>
+</div>
+<!-- /wp:group -->
+
+<!-- wp:template-part {"slug":"header","tagName":"header"} /-->
+
+<!-- wp:group {"tagName":"main","lock":{"move":false,"remove":true}} -->
+<main class="wp-block-group">
+<!-- wp:post-featured-image {"align":"full"} /-->
+
+<!-- wp:group {"layout":{"inherit":true}} -->
+<div class="wp-block-group page-title">
+<!-- wp:post-title /-->
+</div>
+<!-- /wp:group -->
+
+<!-- wp:post-content {"layout":{"inherit":true},"lock":{"move":false,"remove":true}} /-->
+</main>
+<!-- /wp:group -->
+
+<!-- wp:group {"layout":{"inherit":true}} -->
+<div class="wp-block-group">
+    <!-- wp:spacer {"height":60} -->
+    <!--<div style="height:60px" aria-hidden="true" class="wp-block-spacer"></div>-->
+    <!-- /wp:spacer -->
+    <!-- wp:pattern {"slug":"blockbase/comments"} /-->
+</div>
+<!-- /wp:group -->
+
+<!-- wp:template-part {"slug":"footer","tagName":"footer","className":"site-footer-container"} /-->
+
+<script>
+(function () {
+  const canvas = document.getElementById('particleCanvasTwo');
+  if (!canvas) return;
+
+  const ctx = canvas.getContext('2d');
+  let particles = [];
+
+  function resizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    const width = window.innerWidth;
+    const height = 600;
+
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(dpr, dpr);
+
+    particles = [];
+    for (let i = 0; i < 500; i++) {
+      particles.push({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        radius: 0.8 + Math.random() * 1.2,
+        dx: (Math.random() - 0.5) * 0.2,
+        dy: (Math.random() - 0.5) * 0.2,
+        opacity: Math.random(),
+        fade: Math.random() * 0.02,
+      });
+    }
+  }
+
+  function animate() {
+    const width = canvas.width / (window.devicePixelRatio || 1);
+    const height = canvas.height / (window.devicePixelRatio || 1);
+
+    ctx.clearRect(0, 0, width, height);
+
+    for (let p of particles) {
+      p.x += p.dx;
+      p.y += p.dy;
+
+      if (p.x < 0 || p.x > width) p.dx *= -1;
+      if (p.y < 0 || p.y > height) p.dy *= -1;
+
+      p.opacity += (Math.random() > 0.5 ? 1 : -1) * p.fade;
+      p.opacity = Math.max(0, Math.min(1, p.opacity));
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2, false);
+      ctx.fillStyle = `rgba(255, 255, 255, ${p.opacity})`;
+      ctx.fill();
+    }
+
+    requestAnimationFrame(animate);
+  }
+
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+  animate();
+})();
+</script>
