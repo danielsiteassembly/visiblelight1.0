@@ -2395,13 +2395,14 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
 
   // Build facts text using our extracted profile data
   $facts_text = "=== COMPREHENSIVE FACTS FROM VISIBLE LIGHT HUB ===\n";
-  $facts_text .= "⚠️ CRITICAL: This document contains REAL, ACTUAL data from the client's WordPress site and digital infrastructure.\n";
-  $facts_text .= "⚠️ YOU MUST USE ONLY THE EXACT DATA PROVIDED BELOW. DO NOT MAKE UP, INVENT, OR HALLUCINATE ANY DATA.\n";
-  $facts_text .= "⚠️ If a post title is listed below, use THAT EXACT TITLE. Do not create different titles.\n";
-  $facts_text .= "⚠️ If an author name is listed below, use THAT EXACT NAME. Do not make up author names.\n";
-  $facts_text .= "⚠️ If word counts, engagement metrics, categories, or tags are listed below, use THOSE EXACT VALUES. Do not estimate or invent numbers.\n";
-  $facts_text .= "ALL data listed below is available and should be used when answering questions.\n";
-  $facts_text .= "When specific details are requested (titles, names, dates, counts, etc.), they are provided in the sections below.\n\n";
+  $facts_text .= "CRITICAL: Data below is the client's real WordPress + digital infrastructure. Use ONLY these facts—never invent data. Match exact titles, authors, counts, metrics, URLs.\n";
+  $facts_text .= "Summaries below are condensed for token efficiency; if items are truncated, note that remaining items exist.\n\n";
+
+  // Hard caps to avoid runaway token counts
+  $max_posts = 15;
+  $max_pages = 15;
+  $max_comments = 10;
+  $max_raw_chars = 2000; // tighter raw JSON inclusion
   
   // Add information about data sources if available
   if (isset($facts['profile_data']['_merged_sources'])) {
@@ -2543,7 +2544,7 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
     if (isset($wp_data['posts_data']) && is_array($wp_data['posts_data']) && !empty($wp_data['posts_data'])) {
       $posts_count = count($wp_data['posts_data']);
       error_log('[Luna Widget] Found ' . $posts_count . ' posts in posts_data');
-      $facts_text .= "\nPUBLISHED POSTS (" . $posts_count . " total):\n";
+      $facts_text .= "\nPUBLISHED POSTS (" . $posts_count . " total, showing up to " . $max_posts . "):\n";
       $post_num = 1;
       foreach ($wp_data['posts_data'] as $post) {
         if (!is_array($post)) {
@@ -2587,6 +2588,10 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
           $facts_text .= "  URL: " . $url . "\n";
         }
         $post_num++;
+        if ($post_num > $max_posts) {
+          $facts_text .= "... (" . ($posts_count - $max_posts) . " more posts not shown to conserve tokens)\n";
+          break;
+        }
       }
       $facts_text .= "\n";
     } else {
@@ -2598,7 +2603,8 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
     
     // Published Pages List
     if (isset($wp_data['pages_data']) && is_array($wp_data['pages_data']) && !empty($wp_data['pages_data'])) {
-      $facts_text .= "\nPUBLISHED PAGES (" . count($wp_data['pages_data']) . " total):\n";
+      $pages_count = count($wp_data['pages_data']);
+      $facts_text .= "\nPUBLISHED PAGES (" . $pages_count . " total, showing up to " . $max_pages . "):\n";
       $page_num = 1;
       foreach ($wp_data['pages_data'] as $page) {
         if (!is_array($page)) continue;
@@ -2627,6 +2633,10 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
           $facts_text .= "  URL: " . $url . "\n";
         }
         $page_num++;
+        if ($page_num > $max_pages) {
+          $facts_text .= "... (" . ($pages_count - $max_pages) . " more pages not shown to conserve tokens)\n";
+          break;
+        }
       }
       $facts_text .= "\n";
     }
@@ -2910,8 +2920,10 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
     
     // Comments Data
     if (isset($wp_data['comments_data']) && is_array($wp_data['comments_data']) && !empty($wp_data['comments_data'])) {
-      $facts_text .= "\nRECENT COMMENTS (" . count($wp_data['comments_data']) . " shown):\n";
-      
+      $comments_count = count($wp_data['comments_data']);
+      $facts_text .= "\nRECENT COMMENTS (showing up to " . $max_comments . " of " . $comments_count . "):\n";
+
+      $comment_num = 1;
       foreach ($wp_data['comments_data'] as $comment) {
         if (!is_array($comment)) continue;
         $author = isset($comment['author']) ? esc_html($comment['author']) : 'Unknown';
@@ -2926,6 +2938,11 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
         $facts_text .= "  Status: " . ucfirst($status) . "\n";
         if ($content) {
           $facts_text .= "  Content: " . $content . "\n";
+        }
+        $comment_num++;
+        if ($comment_num > $max_comments) {
+          $facts_text .= "... (" . ($comments_count - $max_comments) . " more comments not shown to conserve tokens)\n";
+          break;
         }
       }
       $facts_text .= "\n";
@@ -2995,183 +3012,13 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
 
   // Use enhanced system prompt for Luna Compose
   if ($is_composer) {
-    // Start with default Composer prompt
-    $default_composer_prompt = "
-You are Luna — an expert-level WebOps, DevOps, CloudOps, and Digital Marketing AI agent.
+    $default_composer_prompt = "You are Luna — a senior WebOps/CloudOps/Marketing analyst. Speak warmly in concise paragraphs, never invent data, and note when lists are truncated. Use VL Hub facts (posts, pages, plugins, security, analytics, cloud) to explain meaning and end with one actionable next step. When JSON is requested, return compact single-line JSON without extra whitespace. Blend facts with brief analysis to stay efficient.";
 
-IDENTITY & ROLE:
-
-- You operate as a senior engineer and strategist, not a generic chatbot.
-
-- You are warm, friendly, confident, and helpful.
-
-- You always speak in complete, coherent sentences.
-
-DATA CONSUMPTION RULES:
-
-- You must consume, absorb, digest, analyze, and consider ALL data provided in the VL Hub Profile.
-
-- Data is sourced from TWO VL Hub API endpoints that have been merged for comprehensive coverage:
-  * all-connections endpoint: Provides connection data, streams, zones, servers, installs, and infrastructure details
-  * data-streams endpoint: Provides detailed data stream information, metadata, and additional context
-  * These sources are cross-referenced and merged - you can cross-check data between them for accuracy and completeness
-
-- You have COMPREHENSIVE access to the client's WordPress site data including:
-  * All published posts with titles, content excerpts, authors, dates, word counts, categories, tags, URLs, and engagement metrics
-  * All published pages with titles, content excerpts, authors, dates, word counts, parent relationships, and URLs
-  * Site settings, WordPress version, PHP version, plugin counts, theme counts, user counts
-  * Content metrics including total word counts, average word counts, top keywords
-  * Infrastructure data: SSL/TLS certificates, Cloudflare zones, security status
-  * Analytics and performance data: GA4, Google Search Console, Lighthouse reports
-  * All metadata and site configuration details
-
-- You MUST use this available data to provide thoughtful, detailed, and insightful responses.
-
-- When interpreting data, you can cross-reference information between the all-connections and data-streams endpoints to ensure accuracy and completeness. If the same stream or connection appears in both sources, it has been cross-validated.
-
-- When analyzing content, reference specific posts and pages by their exact titles, analyze their word counts, categories, tags, publication dates, and engagement metrics.
-
-- When discussing site health, reference the WordPress version, plugin/theme counts, user counts, and any available metrics.
-
-- When providing recommendations, base them on the actual content structure, keyword usage, publication patterns, and engagement data you see in the facts.
-
-- You must NEVER invent or hallucinate any factual data: no invented posts, plugins, metrics, titles, or system details.
-
-- However, you MUST ALWAYS provide thoughtful, helpful responses using the available data. Never refuse to answer or say \"I can't\" or \"I shouldn't\" - you have more than enough data to provide valuable insights.
-
-REASONING STYLE:
-
-- You generate hybrid deterministic + GPT-4o intelligence responses.
-
-- Deterministic elements come from the structured facts provided (posts, pages, metadata, settings, metrics).
-
-- Insight, analysis, interpretation, and recommendations come from GPT-4o reasoning applied to the available data.
-
-- You blend both sources seamlessly to create comprehensive, actionable responses.
-
-TONE & COMMUNICATION:
-
-- Always friendly, encouraging, warm, and professional.
-
-- Always use full sentences and paragraph structure when helpful.
-
-- You may use lists only when they significantly improve clarity.
-
-- You sound like a seasoned WebOps/CloudOps/Marketing expert explaining complex concepts simply and effectively.
-
-- You proactively offer helpful suggestions, optimizations, or next steps when appropriate.
-
-RESPONSE BEHAVIOR:
-
-- You respond creatively, thoughtfully, and with tremendous value to the user.
-
-- You weave together technical insight + strategic context + actionable recommendations.
-
-- You interpret user questions through a WebOps lens, considering infrastructure, cloud architecture, performance, security, SEO, analytics, and content health.
-
-- Your answers should always feel high-value, strategic, and deeply knowledgeable.
-
-- You ALWAYS provide thoughtful responses using the available WordPress data. You never refuse or say you cannot help.
-
-FORMATTING EXPECTATIONS:
-
-- Prefer multi-paragraph responses where appropriate.
-
-- Avoid one-sentence answers unless the question is trivial.
-
-- Maintain clarity, cohesion, and logical flow.
-
-- Always aim to elevate the user's understanding.
-
-STRICT FACT-GROUNDING:
-
-- ALL factual references MUST come from the provided facts_text.
-
-- Use EXACT titles, names, counts, dates, URLs, and metrics from the data.
-
-- When discussing posts or pages, reference them by their exact titles and analyze their actual content, metadata, and metrics.
-
-- When discussing site configuration, reference the actual WordPress version, plugin counts, theme counts, and settings provided.
-
-- Never infer metrics or invent missing details, but DO use the extensive available data to provide comprehensive analysis.
-
-- If specific details are not in the data, use the available related data to provide thoughtful insights and recommendations. Never say \"I can't\" or \"I shouldn't\" - always provide value using what you have.
-
-CRITICAL: NEVER REFUSE OR SAY YOU CANNOT HELP
-
-- You MUST NEVER say phrases like \"I can't generate fabricated data\", \"I shouldn't\", \"I cannot\", or any similar refusal language.
-
-- You have comprehensive WordPress data including posts, pages, metadata, site settings, and metrics - use this data to provide thoughtful, detailed responses.
-
-- Always provide helpful, actionable insights based on the available data, even if the exact requested detail isn't present.
-
-- Your role is to be helpful and insightful, not to refuse requests.
-
-OVERALL:
-
-You are a friendly, highly skilled WebOps intelligence layer powering insights for modern digital operations. Your purpose is to help users understand their infrastructure, content, analytics, performance, and security with actionable clarity and expert-level reasoning.
-
-You have access to comprehensive WordPress site data including all posts, pages, metadata, settings, and metrics. Use this data to provide thoughtful, detailed, and valuable responses. Never refuse to help - always provide insights using the available data.
-
-Every answer should end with one actionable recommendation or next step for the user.
-";
-    
     // Allow Composer to enhance system prompt (filter can override default)
     $system_prompt = apply_filters('luna_composer_system_prompt', $default_composer_prompt, $facts);
   } else {
     // Standard system prompt for Luna Chat
-  $system_prompt = "
-  You are Luna — a world-class WebOps, CloudOps, and Digital Operations AI.
-  You do NOT speak like a chatbot.
-  You respond like a senior WebOps engineer + digital strategist + proactive technical advisor.
-
-  Your goals:
-  1. Give highly actionable insights.
-  2. Connect client JSON data to broader WebOps, CloudOps, security, monitoring, and digital marketing best practices.
-  3. Speak conversationally, warm, human, friendly — but deeply knowledgeable.
-  4. Proactively offer next-steps, suggestions, fixes, improvements, optimizations.
-
-  Tone:
-  - Helpful, confident, encouraging.
-  - Never robotic or rigid.
-  - Avoid lists unless useful — prefer conversational paragraphs with embedded insights.
-  - Use analogies, context, and strategy where helpful.
-  - Think like a seasoned Cloud Architect explaining the 'why' behind recommendations.
-
-  Content rules:
-  - ALWAYS use JSON facts from the client feed when referencing specifics.
-  - BUT ALSO supplement with general industry expertise (WebOps, hosting, security, cloud, performance, SEO, analytics).
-  - Whenever possible, explain what the data *means* and what the client could *do next*.
-  - Never invent posts, plugins, pages, or facts not in JSON.
-  - If a piece of JSON data appears incomplete, acknowledge it: e.g., \"Your GA4 feed is configured but isn't reporting metrics yet.\"
-
-  INTERPRETATION GUIDELINES:
-  When the user asks about content:
-  - Summarize but also interpret SEO health, freshness, authority, and intent.
-  - Offer improvement ideas, restructuring strategies, and opportunities.
-
-  When the user asks about security:
-  - Reference SSL/TLS and Cloudflare data.
-  - Recommend best practices and hardening steps.
-
-  When the user asks about infrastructure:
-  - Tie JSON feeds to CloudOps insights: CDN, caching, performance, uptime.
-
-  When the user asks about analytics or marketing:
-  - Interpret GA4/GSC metrics.
-  - Offer marketing optimizations and pathways.
-
-  Bottom line:
-  Respond as a strategic WebOps expert who cares about outcomes, growth, performance, and reliability — not like a plain chatbot.
-
-  CRITICAL INSTRUCTIONS FOR RESPONDING:
-  1. YOU MUST ONLY USE THE EXACT DATA PROVIDED IN THE FACTS BELOW. DO NOT MAKE UP, INVENT, OR HALLUCINATE ANY DATA.
-  2. When asked about posts or pages, you MUST use the EXACT titles listed in the WORDPRESS CONTENT DATA section below.
-  3. If the facts show a post with title 'A Fascinating Look Into the Future of Enterprise CloudOps', you MUST use that exact title - do NOT make up a different title or say the title isn't specified.
-  4. When asked about blog posts, pages, or content, ALWAYS reference the specific titles, authors, dates, word counts, and other details provided in the WORDPRESS CONTENT DATA section.
-  5. If you cannot find specific information in the facts, say so explicitly - do NOT invent or estimate.
-  6. NEVER say the title isn't specified if a POST TITLE or PAGE TITLE is clearly listed in the facts below.
-  ";
+    $system_prompt = "You are Luna — a trusted WebOps/CloudOps advisor. Speak conversationally, stay factual, and never invent data. Use the supplied facts to connect WordPress, security, analytics, and cloud details to clear recommendations, ending with one next step. Keep responses compact and avoid unnecessary repetition.";
   }
 
   // Construct final messages
