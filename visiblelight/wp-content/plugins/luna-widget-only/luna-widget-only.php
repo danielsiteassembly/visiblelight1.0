@@ -2399,11 +2399,10 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
   $facts_text .= "Summaries below are condensed for token efficiency; if items are truncated, note that remaining items exist.\n\n";
 
   // Hard caps to avoid runaway token counts
-  $max_posts = 12;
-  $max_pages = 12;
-  $max_comments = 8;
-  $max_streams = 20;
-  $max_raw_chars = 1500; // tighter raw JSON inclusion
+  $max_posts = 15;
+  $max_pages = 15;
+  $max_comments = 10;
+  $max_raw_chars = 2000; // tighter raw JSON inclusion
   
   // Add information about data sources if available
   if (isset($facts['profile_data']['_merged_sources'])) {
@@ -3033,34 +3032,24 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
     }
   }
 
-  // Include compact raw payload snippets so GPT can see real fields without blowing token limits
+  // Include full raw payloads so GPT has access to every field coming from VL Hub
   if (!empty($facts['raw_hub_payloads']) && is_array($facts['raw_hub_payloads'])) {
-    $facts_text .= "\nRAW HUB JSON SNAPSHOT (COMPACT):\n";
+    $facts_text .= "\nRAW HUB JSON SNAPSHOT (VERBATIM):\n";
     foreach (array('all_connections' => 'ALL CONNECTIONS ENDPOINT', 'data_streams' => 'DATA STREAMS ENDPOINT', 'merged' => 'MERGED PAYLOAD USED BY LUNA') as $raw_key => $label) {
       if (!empty($facts['raw_hub_payloads'][$raw_key])) {
         $facts_text .= "--- " . $label . " ---\n";
-        $raw_json = wp_json_encode($facts['raw_hub_payloads'][$raw_key], JSON_UNESCAPED_SLASHES);
-        if ($raw_json !== null) {
-          $raw_len = strlen($raw_json);
-          if ($raw_len > $max_raw_chars) {
-            $facts_text .= substr($raw_json, 0, $max_raw_chars) . "\n... [truncated " . ($raw_len - $max_raw_chars) . " chars]\n\n";
-          } else {
-            $facts_text .= $raw_json . "\n\n";
-          }
-        } else {
-          $facts_text .= "[raw payload could not be encoded]\n\n";
-        }
+        $facts_text .= wp_json_encode($facts['raw_hub_payloads'][$raw_key], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n\n";
       }
     }
   }
 
-  // Allow Composer to enhance facts_text before the final trim
+  // Allow Composer to enhance facts_text
   if ($is_composer) {
     $facts_text = apply_filters('luna_composer_facts_text', $facts_text, $facts);
   }
 
   // Ensure the final facts_text stays within a safe length for OpenAI
-  $max_facts_length = 12000; // tighter bound to avoid TPM limit errors
+  $max_facts_length = 16000; // tighter bound to avoid TPM limit errors
   if (strlen($facts_text) > $max_facts_length) {
     $facts_text = substr($facts_text, 0, $max_facts_length) . "\n... [facts truncated to stay within model limits]\n";
   }
@@ -3069,13 +3058,13 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
 
   // Use enhanced system prompt for Luna Compose
   if ($is_composer) {
-    $default_composer_prompt = "You are Luna — a senior WebOps/CloudOps/Marketing analyst. Speak warmly in concise paragraphs, never invent data, and note when lists are truncated. Use concrete VL Hub facts (posts, pages, plugins, security, analytics, cloud, stream metadata) instead of just health scores, and highlight any source fields used. End with one actionable next step. When JSON is requested, return compact single-line JSON without extra whitespace. Blend facts with brief analysis to stay efficient.";
+    $default_composer_prompt = "You are Luna — a senior WebOps/CloudOps/Marketing analyst. Speak warmly in concise paragraphs, never invent data, and note when lists are truncated. Use VL Hub facts (posts, pages, plugins, security, analytics, cloud) to explain meaning and end with one actionable next step. When JSON is requested, return compact single-line JSON without extra whitespace. Blend facts with brief analysis to stay efficient.";
 
     // Allow Composer to enhance system prompt (filter can override default)
     $system_prompt = apply_filters('luna_composer_system_prompt', $default_composer_prompt, $facts);
   } else {
     // Standard system prompt for Luna Chat
-    $system_prompt = "You are Luna — a trusted WebOps/CloudOps advisor. Speak conversationally, stay factual, and never invent data. Use the supplied facts to connect WordPress, security, analytics, cloud, and stream metadata (not just health scores) to clear recommendations, ending with one next step. Keep responses compact and avoid unnecessary repetition.";
+    $system_prompt = "You are Luna — a trusted WebOps/CloudOps advisor. Speak conversationally, stay factual, and never invent data. Use the supplied facts to connect WordPress, security, analytics, and cloud details to clear recommendations, ending with one next step. Keep responses compact and avoid unnecessary repetition.";
   }
 
   // Construct final messages
@@ -3125,7 +3114,7 @@ function luna_call_openai($messages, $api_key, $is_composer = false) {
     'model' => 'gpt-4o', // Align with license manager usage and broader availability
     'messages' => $messages,
     'temperature' => $temperature,
-    'max_tokens' => 1200,
+    'max_tokens' => 2000,
   );
 
   $encoded_body = wp_json_encode($payload);
