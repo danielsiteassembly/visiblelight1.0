@@ -1805,20 +1805,51 @@ function luna_widget_fetch_hub_data($force_refresh = false) {
             $final_data['data']['client_streams'][$stream_id] = $stream;
             $final_data['data']['client_streams'][$stream_id]['_source'] = 'data-streams';
           } else {
+            // Merge any missing or empty fields from data-streams into the existing all-connections stream
+            $existing_stream = &$final_data['data']['client_streams'][$stream_id];
+
+            foreach ($stream as $key => $value) {
+              $existing_value = isset($existing_stream[$key]) ? $existing_stream[$key] : null;
+
+              $is_missing = !isset($existing_stream[$key]);
+              $is_empty_array = is_array($existing_value) && empty($existing_value);
+              $is_empty_scalar = !is_array($existing_value) && ($existing_value === '' || $existing_value === null);
+
+              if ($is_missing || $is_empty_array || $is_empty_scalar) {
+                $existing_stream[$key] = $value;
+              } elseif (is_array($existing_value) && is_array($value) && !empty($value)) {
+                // Preserve existing values but add any additional keys from data-streams
+                $existing_stream[$key] = array_merge($value, $existing_value);
+              }
+            }
+
             // Mark as cross-referenced
-            $final_data['data']['client_streams'][$stream_id]['_cross_referenced'] = true;
-            $final_data['data']['client_streams'][$stream_id]['_sources'] = array('all-connections', 'data-streams');
+            $existing_stream['_cross_referenced'] = true;
+            $existing_stream['_sources'] = array('all-connections', 'data-streams');
           }
         }
       }
-      
+
       // Add any other top-level data from data-streams that doesn't exist in all_connections
       foreach ($streams_data['data'] as $key => $value) {
-        if ($key !== 'client_streams' && !isset($final_data['data'][$key])) {
+        if ($key === 'client_streams') {
+          continue;
+        }
+
+        $existing_value = isset($final_data['data'][$key]) ? $final_data['data'][$key] : null;
+        $is_missing = !isset($final_data['data'][$key]);
+        $is_empty_array = is_array($existing_value) && empty($existing_value);
+        $is_empty_scalar = !is_array($existing_value) && ($existing_value === '' || $existing_value === null);
+
+        if ($is_missing || $is_empty_array || $is_empty_scalar) {
           $final_data['data'][$key] = $value;
           if (is_array($value)) {
             $final_data['data'][$key]['_source'] = 'data-streams';
           }
+        } elseif (is_array($existing_value) && is_array($value) && !empty($value)) {
+          // Merge supplemental metadata while keeping all-connections values authoritative
+          $final_data['data'][$key] = array_merge($value, $existing_value);
+          $final_data['data'][$key]['_sources'] = array('all-connections', 'data-streams');
         }
       }
     }
@@ -1845,7 +1876,13 @@ function luna_widget_fetch_hub_data($force_refresh = false) {
     error_log('[Luna Widget] No data retrieved from either endpoint');
     return null;
   }
-  
+
+  // Attach raw payloads so downstream consumers (Luna Chat/Compose) can see everything
+  $final_data['_raw_sources'] = array(
+    'all_connections' => $merged_data['all_connections'],
+    'data_streams'    => $merged_data['data_streams'],
+  );
+
   // Cache the merged data
   set_transient($cache_key, $final_data, LUNA_CACHE_PROFILE_TTL);
   
@@ -1894,7 +1931,14 @@ function luna_widget_get_comprehensive_facts() {
     ),
     'comprehensive' => true,
     'profile_data' => $profile_data,
+    'raw_hub_payloads' => array(),
   );
+
+  // Preserve raw hub payloads for downstream analysis
+  if (isset($hub_data['_raw_sources']) && is_array($hub_data['_raw_sources'])) {
+    $facts['raw_hub_payloads'] = $hub_data['_raw_sources'];
+  }
+  $facts['raw_hub_payloads']['merged'] = $hub_data;
   
   // Extract WordPress data if available - check ALL possible locations
   $wordpress_data = null;
@@ -2348,7 +2392,7 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
   $site_url = isset($facts['site_url']) ? (string)$facts['site_url'] : home_url('/');
   $https = isset($facts['https']) ? ($facts['https'] ? 'yes' : 'no') : 'unknown';
   $wpv = isset($facts['wp_version']) && $facts['wp_version'] !== '' ? (string)$facts['wp_version'] : 'unknown';
-  
+
   // Build facts text using our extracted profile data
   $facts_text = "=== COMPREHENSIVE FACTS FROM VISIBLE LIGHT HUB ===\n";
   $facts_text .= "⚠️ CRITICAL: This document contains REAL, ACTUAL data from the client's WordPress site and digital infrastructure.\n";
@@ -2930,7 +2974,35 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
       $facts_text .= "\n";
     }
   }
-  
+
+  // Include full raw payloads so GPT has access to every field coming from VL Hub
+  if (!empty($facts['raw_hub_payloads']) && is_array($facts['raw_hub_payloads'])) {
+    $facts_text .= "\nRAW HUB JSON SNAPSHOT (VERBATIM):\n";
+    $max_raw_chars = 5000; // prevent oversized payloads from breaking OpenAI requests
+    foreach (array('all_connections' => 'ALL CONNECTIONS ENDPOINT', 'data_streams' => 'DATA STREAMS ENDPOINT', 'merged' => 'MERGED PAYLOAD USED BY LUNA') as $raw_key => $label) {
+      if (!empty($facts['raw_hub_payloads'][$raw_key])) {
+        $facts_text .= "--- " . $label . " ---\n";
+        $raw_json = wp_json_encode($facts['raw_hub_payloads'][$raw_key], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($raw_json !== null) {
+          $raw_len = strlen($raw_json);
+          if ($raw_len > $max_raw_chars) {
+            $facts_text .= substr($raw_json, 0, $max_raw_chars) . "\n... [truncated " . ($raw_len - $max_raw_chars) . " characters of raw payload to keep the request under the OpenAI limit]\n\n";
+          } else {
+            $facts_text .= $raw_json . "\n\n";
+          }
+        } else {
+          $facts_text .= "[raw payload could not be encoded]\n\n";
+        }
+      }
+    }
+  }
+
+  // Ensure the final facts_text stays within a safe length for OpenAI
+  $max_facts_length = 120000;
+  if (strlen($facts_text) > $max_facts_length) {
+    $facts_text = substr($facts_text, 0, $max_facts_length) . "\n... [facts truncated to stay within model limits]\n";
+  }
+
   // Allow Composer to enhance facts_text
   if ($is_composer) {
     $facts_text = apply_filters('luna_composer_facts_text', $facts_text, $facts);
@@ -3155,36 +3227,70 @@ function luna_call_openai($messages, $api_key, $is_composer = false) {
   if (empty($api_key)) {
     return new WP_Error('no_api_key', 'OpenAI API key is not configured');
   }
-  
+
   // For Luna Compose, use slightly higher temperature for more creative, thoughtful responses
   // while still maintaining factual accuracy based on available data
   $temperature = $is_composer ? 0.4 : 0.1;
-  
+
+  $payload = array(
+    'model' => 'gpt-4o', // Align with license manager usage and broader availability
+    'messages' => $messages,
+    'temperature' => $temperature,
+    'max_tokens' => 2000,
+  );
+
+  $encoded_body = wp_json_encode($payload);
+  if ($encoded_body === false || $encoded_body === null) {
+    return new WP_Error('openai_encode_error', 'Failed to encode OpenAI request payload');
+  }
+
   $response = wp_remote_post('https://api.openai.com/v1/chat/completions', array(
     'timeout' => 60,
     'headers' => array(
       'Authorization' => 'Bearer ' . $api_key,
       'Content-Type' => 'application/json',
     ),
-    'body' => json_encode(array(
-      'model' => 'gpt-4o-mini',
-      'messages' => $messages,
-      'temperature' => $temperature,
-      'max_tokens' => 2000,
-    )),
+    'body' => $encoded_body,
   ));
-  
+
   if (is_wp_error($response)) {
     return $response;
   }
-  
-  $body = json_decode(wp_remote_retrieve_body($response), true);
-  
+
+  $raw_body = wp_remote_retrieve_body($response);
+  $body = json_decode($raw_body, true);
+  $status = wp_remote_retrieve_response_code($response);
+  if ($status < 200 || $status > 299) {
+    $message = 'Failed to get response from OpenAI';
+    if (isset($body['error']['message'])) {
+      $message = $body['error']['message'];
+    } elseif (isset($body['message'])) {
+      $message = $body['message'];
+    } elseif (!empty($raw_body)) {
+      $snippet = substr($raw_body, 0, 300);
+      $message = 'OpenAI HTTP ' . $status . ' - ' . $snippet;
+    } else {
+      $message = 'OpenAI HTTP ' . $status . ' with empty response body';
+    }
+    return new WP_Error('openai_error', $message);
+  }
+
+  if ($body === null && json_last_error() !== JSON_ERROR_NONE) {
+    return new WP_Error(
+      'openai_error',
+      'Malformed response from OpenAI: ' . json_last_error_msg() . ' - ' . substr($raw_body, 0, 300)
+    );
+  }
+
   if (isset($body['choices'][0]['message']['content'])) {
     return trim($body['choices'][0]['message']['content']);
   }
-  
-  return new WP_Error('openai_error', 'Failed to get response from OpenAI');
+
+  if (isset($body['error']['message'])) {
+    return new WP_Error('openai_error', $body['error']['message']);
+  }
+
+  return new WP_Error('openai_error', 'Failed to get response from OpenAI: unexpected response format');
 }
 
 /* ============================================================
