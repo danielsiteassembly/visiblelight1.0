@@ -2450,19 +2450,50 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
   // Add data streams summary
   if (isset($facts['streams']) && is_array($facts['streams']) && !empty($facts['streams'])) {
     $facts_text .= "\nDATA STREAMS (" . count($facts['streams']) . "):\n";
+    $stream_counter = 0;
     foreach ($facts['streams'] as $stream) {
+      $stream_counter++;
       $facts_text .= "- " . $stream['name'] . " (" . ucfirst($stream['status']) . ")";
       if (isset($stream['health_score']) && $stream['health_score'] > 0) {
         $facts_text .= " - Health: " . number_format($stream['health_score'], 1) . "%";
       }
-      if (isset($stream['categories']) && is_array($stream['categories'])) {
-        $luna_intel = in_array('luna-intel', $stream['categories']);
-        if ($luna_intel) {
-          $facts_text .= " - Category: Luna Intel";
-        }
+      if (isset($stream['categories']) && is_array($stream['categories']) && !empty($stream['categories'])) {
+        $facts_text .= " - Categories: " . implode(', ', array_map('esc_html', $stream['categories']));
+      }
+      if (!empty($stream['last_updated'])) {
+        $facts_text .= " - Updated: " . esc_html($stream['last_updated']);
       }
       $facts_text .= "\n";
-      
+
+      // Include meaningful metadata beyond health scores
+      $detail_lines = array();
+      $detail_sources = array('meta', 'meta_data', 'connector_data', 'data', 'details');
+      foreach ($detail_sources as $detail_key) {
+        if (isset($stream[$detail_key]) && is_array($stream[$detail_key])) {
+          foreach ($stream[$detail_key] as $k => $v) {
+            if (count($detail_lines) >= 8) break 2;
+            if (is_scalar($v)) {
+              $detail_lines[] = "  · " . esc_html($k) . ': ' . (is_bool($v) ? ($v ? 'true' : 'false') : esc_html((string)$v));
+            } elseif (is_array($v)) {
+              $flat = array();
+              foreach ($v as $sub_key => $sub_val) {
+                if (count($flat) >= 3) break;
+                if (is_scalar($sub_val)) {
+                  $flat[] = $sub_key . '=' . (is_bool($sub_val) ? ($sub_val ? 'true' : 'false') : (string)$sub_val);
+                }
+              }
+              if (!empty($flat)) {
+                $detail_lines[] = "  · " . esc_html($k) . ': ' . esc_html(implode(', ', $flat));
+              }
+            }
+          }
+        }
+      }
+
+      if (!empty($detail_lines)) {
+        $facts_text .= implode("\n", array_slice($detail_lines, 0, 8)) . "\n";
+      }
+
       // If this is the Training Data stream, include detailed information
       if (isset($stream['id']) && $stream['id'] === 'training_data' && isset($stream['training_items']) && is_array($stream['training_items'])) {
         $facts_text .= "  Training Data Stream Details (Luna Intel):\n";
@@ -2471,6 +2502,10 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
           $facts_text .= "  - Status: Luna has consumed and is using this training data\n";
         }
         foreach ($stream['training_items'] as $train_index => $train_item) {
+          if ($train_index >= 3) {
+            $facts_text .= "  ... (" . (count($stream['training_items']) - $train_index) . " more training items not shown)\n";
+            break;
+          }
           $facts_text .= "  - Training Item #" . ($train_index + 1) . ":\n";
           if (isset($train_item['industry_label'])) {
             $facts_text .= "    Industry: " . esc_html($train_item['industry_label']) . "\n";
@@ -2485,12 +2520,17 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
             $facts_text .= "    Vision: " . esc_html($train_item['vision']) . "\n";
           }
           if (isset($train_item['luna_test_response'])) {
-            $facts_text .= "    Luna Test Response (Confirmation): " . esc_html(wp_trim_words($train_item['luna_test_response'], 100)) . "\n";
+            $facts_text .= "    Luna Test Response (Confirmation): " . esc_html(wp_trim_words($train_item['luna_test_response'], 50)) . "\n";
             if (isset($train_item['luna_test_response_date'])) {
               $facts_text .= "    Luna Consumed Date: " . esc_html($train_item['luna_test_response_date']) . "\n";
             }
           }
         }
+      }
+
+      if ($stream_counter >= $max_streams) {
+        $facts_text .= "... (" . (count($facts['streams']) - $max_streams) . " more streams not shown to conserve tokens)\n";
+        break;
       }
     }
   }
