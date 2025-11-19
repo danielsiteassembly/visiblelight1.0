@@ -1876,7 +1876,13 @@ function luna_widget_fetch_hub_data($force_refresh = false) {
     error_log('[Luna Widget] No data retrieved from either endpoint');
     return null;
   }
-  
+
+  // Attach raw payloads so downstream consumers (Luna Chat/Compose) can see everything
+  $final_data['_raw_sources'] = array(
+    'all_connections' => $merged_data['all_connections'],
+    'data_streams'    => $merged_data['data_streams'],
+  );
+
   // Cache the merged data
   set_transient($cache_key, $final_data, LUNA_CACHE_PROFILE_TTL);
   
@@ -1925,7 +1931,14 @@ function luna_widget_get_comprehensive_facts() {
     ),
     'comprehensive' => true,
     'profile_data' => $profile_data,
+    'raw_hub_payloads' => array(),
   );
+
+  // Preserve raw hub payloads for downstream analysis
+  if (isset($hub_data['_raw_sources']) && is_array($hub_data['_raw_sources'])) {
+    $facts['raw_hub_payloads'] = $hub_data['_raw_sources'];
+  }
+  $facts['raw_hub_payloads']['merged'] = $hub_data;
   
   // Extract WordPress data if available - check ALL possible locations
   $wordpress_data = null;
@@ -2961,7 +2974,18 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
       $facts_text .= "\n";
     }
   }
-  
+
+  // Include full raw payloads so GPT has access to every field coming from VL Hub
+  if (!empty($facts['raw_hub_payloads']) && is_array($facts['raw_hub_payloads'])) {
+    $facts_text .= "\nRAW HUB JSON SNAPSHOT (VERBATIM):\n";
+    foreach (array('all_connections' => 'ALL CONNECTIONS ENDPOINT', 'data_streams' => 'DATA STREAMS ENDPOINT', 'merged' => 'MERGED PAYLOAD USED BY LUNA') as $raw_key => $label) {
+      if (!empty($facts['raw_hub_payloads'][$raw_key])) {
+        $facts_text .= "--- " . $label . " ---\n";
+        $facts_text .= wp_json_encode($facts['raw_hub_payloads'][$raw_key], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n\n";
+      }
+    }
+  }
+
   // Allow Composer to enhance facts_text
   if ($is_composer) {
     $facts_text = apply_filters('luna_composer_facts_text', $facts_text, $facts);
