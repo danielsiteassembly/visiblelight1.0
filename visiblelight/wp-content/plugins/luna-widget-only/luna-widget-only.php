@@ -2995,30 +2995,12 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
   // Include full raw payloads so GPT has access to every field coming from VL Hub
   if (!empty($facts['raw_hub_payloads']) && is_array($facts['raw_hub_payloads'])) {
     $facts_text .= "\nRAW HUB JSON SNAPSHOT (VERBATIM):\n";
-    $max_raw_chars = 5000; // prevent oversized payloads from breaking OpenAI requests
     foreach (array('all_connections' => 'ALL CONNECTIONS ENDPOINT', 'data_streams' => 'DATA STREAMS ENDPOINT', 'merged' => 'MERGED PAYLOAD USED BY LUNA') as $raw_key => $label) {
       if (!empty($facts['raw_hub_payloads'][$raw_key])) {
         $facts_text .= "--- " . $label . " ---\n";
-        // Use compact JSON to reduce tokens while keeping fields searchable
-        $raw_json = wp_json_encode($facts['raw_hub_payloads'][$raw_key], JSON_UNESCAPED_SLASHES);
-        if ($raw_json !== null) {
-          $raw_len = strlen($raw_json);
-          if ($raw_len > $max_raw_chars) {
-            $facts_text .= substr($raw_json, 0, $max_raw_chars) . "\n... [truncated " . ($raw_len - $max_raw_chars) . " characters of raw payload to keep the request under the OpenAI limit]\n\n";
-          } else {
-            $facts_text .= $raw_json . "\n\n";
-          }
-        } else {
-          $facts_text .= "[raw payload could not be encoded]\n\n";
-        }
+        $facts_text .= wp_json_encode($facts['raw_hub_payloads'][$raw_key], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n\n";
       }
     }
-  }
-
-  // Ensure the final facts_text stays within a safe length for OpenAI
-  $max_facts_length = 24000;
-  if (strlen($facts_text) > $max_facts_length) {
-    $facts_text = substr($facts_text, 0, $max_facts_length) . "\n... [facts truncated to stay within model limits]\n";
   }
 
   // Allow Composer to enhance facts_text
@@ -3084,7 +3066,7 @@ function luna_call_openai($messages, $api_key, $is_composer = false) {
     'model' => 'gpt-4o', // Align with license manager usage and broader availability
     'messages' => $messages,
     'temperature' => $temperature,
-    'max_tokens' => 1200,
+    'max_tokens' => 2000,
   );
 
   $encoded_body = wp_json_encode($payload);
