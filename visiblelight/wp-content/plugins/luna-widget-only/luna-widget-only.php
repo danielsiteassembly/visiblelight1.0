@@ -3007,6 +3007,12 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
   if ($is_composer) {
     $facts_text = apply_filters('luna_composer_facts_text', $facts_text, $facts);
   }
+
+  // Ensure the final facts_text stays within a safe length for OpenAI
+  $max_facts_length = 16000; // tighter bound to avoid TPM limit errors
+  if (strlen($facts_text) > $max_facts_length) {
+    $facts_text = substr($facts_text, 0, $max_facts_length) . "\n... [facts truncated to stay within model limits]\n";
+  }
   
   // === BUILD SYSTEM PROMPT (FINAL VERSION) ===
 
@@ -3029,10 +3035,12 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
       ),
   );
 
-  // Add conversation history
+  // Add conversation history (limit to most recent turns to control token use)
   if ($pid) {
       $transcript = get_post_meta($pid, 'transcript', true);
       if (is_array($transcript)) {
+          $max_turns = 6; // keep history small for TPM safety
+          $transcript = array_slice($transcript, -$max_turns);
           foreach ($transcript as $turn) {
               if (!empty($turn['user'])) {
                   $messages[] = array('role' => 'user', 'content' => $turn['user']);
