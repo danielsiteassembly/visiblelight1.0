@@ -2392,7 +2392,7 @@ function luna_openai_messages_with_facts($pid, $user_text, $facts, $is_comprehen
   $site_url = isset($facts['site_url']) ? (string)$facts['site_url'] : home_url('/');
   $https = isset($facts['https']) ? ($facts['https'] ? 'yes' : 'no') : 'unknown';
   $wpv = isset($facts['wp_version']) && $facts['wp_version'] !== '' ? (string)$facts['wp_version'] : 'unknown';
-  
+
   // Build facts text using our extracted profile data
   $facts_text = "=== COMPREHENSIVE FACTS FROM VISIBLE LIGHT HUB ===\n";
   $facts_text .= "⚠️ CRITICAL: This document contains REAL, ACTUAL data from the client's WordPress site and digital infrastructure.\n";
@@ -3210,36 +3210,70 @@ function luna_call_openai($messages, $api_key, $is_composer = false) {
   if (empty($api_key)) {
     return new WP_Error('no_api_key', 'OpenAI API key is not configured');
   }
-  
+
   // For Luna Compose, use slightly higher temperature for more creative, thoughtful responses
   // while still maintaining factual accuracy based on available data
   $temperature = $is_composer ? 0.4 : 0.1;
-  
+
+  $payload = array(
+    'model' => 'gpt-4o', // Align with license manager usage and broader availability
+    'messages' => $messages,
+    'temperature' => $temperature,
+    'max_tokens' => 2000,
+  );
+
+  $encoded_body = wp_json_encode($payload);
+  if ($encoded_body === false || $encoded_body === null) {
+    return new WP_Error('openai_encode_error', 'Failed to encode OpenAI request payload');
+  }
+
   $response = wp_remote_post('https://api.openai.com/v1/chat/completions', array(
     'timeout' => 60,
     'headers' => array(
       'Authorization' => 'Bearer ' . $api_key,
       'Content-Type' => 'application/json',
     ),
-    'body' => json_encode(array(
-      'model' => 'gpt-4o-mini',
-      'messages' => $messages,
-      'temperature' => $temperature,
-      'max_tokens' => 2000,
-    )),
+    'body' => $encoded_body,
   ));
-  
+
   if (is_wp_error($response)) {
     return $response;
   }
-  
-  $body = json_decode(wp_remote_retrieve_body($response), true);
-  
+
+  $raw_body = wp_remote_retrieve_body($response);
+  $body = json_decode($raw_body, true);
+  $status = wp_remote_retrieve_response_code($response);
+  if ($status < 200 || $status > 299) {
+    $message = 'Failed to get response from OpenAI';
+    if (isset($body['error']['message'])) {
+      $message = $body['error']['message'];
+    } elseif (isset($body['message'])) {
+      $message = $body['message'];
+    } elseif (!empty($raw_body)) {
+      $snippet = substr($raw_body, 0, 300);
+      $message = 'OpenAI HTTP ' . $status . ' - ' . $snippet;
+    } else {
+      $message = 'OpenAI HTTP ' . $status . ' with empty response body';
+    }
+    return new WP_Error('openai_error', $message);
+  }
+
+  if ($body === null && json_last_error() !== JSON_ERROR_NONE) {
+    return new WP_Error(
+      'openai_error',
+      'Malformed response from OpenAI: ' . json_last_error_msg() . ' - ' . substr($raw_body, 0, 300)
+    );
+  }
+
   if (isset($body['choices'][0]['message']['content'])) {
     return trim($body['choices'][0]['message']['content']);
   }
-  
-  return new WP_Error('openai_error', 'Failed to get response from OpenAI');
+
+  if (isset($body['error']['message'])) {
+    return new WP_Error('openai_error', $body['error']['message']);
+  }
+
+  return new WP_Error('openai_error', 'Failed to get response from OpenAI: unexpected response format');
 }
 
 /* ============================================================
