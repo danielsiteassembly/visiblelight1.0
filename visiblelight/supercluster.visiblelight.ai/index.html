@@ -3287,6 +3287,76 @@
                 let streams = {};
                 let connectionsData = {};
                 let contentData = null;
+
+                const mergeWordPressData = (target, source) => {
+                    if (!target || !source || typeof source !== 'object') return;
+
+                    const candidates = [
+                        source,
+                        source.data,
+                        source.wordpress_content,
+                        source.data && source.data.wordpress_content
+                    ].filter(Boolean);
+
+                    const coerceArray = (value) => Array.isArray(value) ? value : [];
+
+                    const mergeList = (key, list) => {
+                        if (Array.isArray(list) && list.length > 0 && (!target[key] || target[key].length === 0)) {
+                            target[key] = list;
+                        }
+                    };
+
+                    candidates.forEach(candidate => {
+                        mergeList('posts_data', coerceArray(candidate.posts_data || candidate.posts || candidate.wordpress_posts || (candidate.content && candidate.content.posts)));
+                        mergeList('pages_data', coerceArray(candidate.pages_data || candidate.pages || candidate.wordpress_pages || (candidate.content && candidate.content.pages)));
+                        mergeList('plugins_data', coerceArray(candidate.plugins_data || candidate.plugins));
+                        mergeList('themes_data', coerceArray(candidate.themes_data || candidate.themes));
+                        mergeList('users_data', coerceArray(candidate.users_data || candidate.users || candidate.wordpress_users));
+                        mergeList('comments_data', coerceArray(candidate.comments_data || candidate.comments));
+
+                        if (!target.wp_core_data && candidate.wp_core_data && typeof candidate.wp_core_data === 'object') {
+                            target.wp_core_data = candidate.wp_core_data;
+                        }
+
+                        const totals = [
+                            ['posts_total', 'total_posts', candidate.posts_total],
+                            ['pages_total', 'total_pages', candidate.pages_total],
+                            ['users_total', 'total_users', candidate.users_total],
+                            ['comments_total', 'total_comments', candidate.comments_total],
+                            ['plugins_total', 'total_plugins', candidate.plugins_total],
+                            ['plugins_active', 'active_plugins', candidate.plugins_active],
+                            ['plugins_needing_update', 'plugins_needing_update', candidate.plugins_needing_update],
+                            ['themes_total', 'total_themes', candidate.themes_total],
+                            ['themes_needing_update', 'themes_needing_update', candidate.themes_needing_update]
+                        ];
+
+                        totals.forEach(([targetKey, altKey, directValue]) => {
+                            if (target[targetKey] === undefined) {
+                                if (directValue !== undefined) {
+                                    target[targetKey] = directValue;
+                                } else if (candidate[altKey] !== undefined) {
+                                    target[targetKey] = candidate[altKey];
+                                }
+                            }
+                        });
+                    });
+
+                    if (target.posts_total === undefined && target.posts_data && target.posts_data.length) {
+                        target.posts_total = target.posts_data.length;
+                    }
+                    if (target.pages_total === undefined && target.pages_data && target.pages_data.length) {
+                        target.pages_total = target.pages_data.length;
+                    }
+                    if (target.users_total === undefined && target.users_data && target.users_data.length) {
+                        target.users_total = target.users_data.length;
+                    }
+                    if (target.plugins_total === undefined && target.plugins_data && target.plugins_data.length) {
+                        target.plugins_total = target.plugins_data.length;
+                    }
+                    if (target.themes_total === undefined && target.themes_data && target.themes_data.length) {
+                        target.themes_total = target.themes_data.length;
+                    }
+                };
                 
                 // First, try the /content endpoint which might have better WordPress data structure
                 try {
@@ -3676,54 +3746,9 @@
                                             
                                             if (hasWordPressData) {
                                                 console.log('[Stream Data] ✓✓✓ FOUND WORDPRESS DATA in /content endpoint streams[' + key + ']');
-                                                console.log('[Stream Data] Content stream has posts_data:', !!candidateStream.posts_data, candidateStream.posts_data?.length);
-                                                console.log('[Stream Data] Content stream has pages_data:', !!candidateStream.pages_data, candidateStream.pages_data?.length);
-                                                console.log('[Stream Data] Content stream has plugins_data:', !!candidateStream.plugins_data, candidateStream.plugins_data?.length);
-                                                
-                                                // FORCE MERGE ALL WordPress data from /content endpoint
-                                                if (candidateStream.posts_data && Array.isArray(candidateStream.posts_data)) {
-                                                    stream.posts_data = candidateStream.posts_data;
-                                                    console.log('[Stream Data] ✓✓✓ MERGED posts_data from /content:', candidateStream.posts_data.length, 'posts');
-                                                }
-                                                if (candidateStream.pages_data && Array.isArray(candidateStream.pages_data)) {
-                                                    stream.pages_data = candidateStream.pages_data;
-                                                    console.log('[Stream Data] ✓✓✓ MERGED pages_data from /content:', candidateStream.pages_data.length, 'pages');
-                                                }
-                                                if (candidateStream.plugins_data && Array.isArray(candidateStream.plugins_data)) {
-                                                    stream.plugins_data = candidateStream.plugins_data;
-                                                    console.log('[Stream Data] ✓✓✓ MERGED plugins_data from /content:', candidateStream.plugins_data.length, 'plugins');
-                                                }
-                                                if (candidateStream.themes_data && Array.isArray(candidateStream.themes_data)) {
-                                                    stream.themes_data = candidateStream.themes_data;
-                                                    console.log('[Stream Data] ✓✓✓ MERGED themes_data from /content:', candidateStream.themes_data.length, 'themes');
-                                                }
-                                                if (candidateStream.users_data && Array.isArray(candidateStream.users_data)) {
-                                                    stream.users_data = candidateStream.users_data;
-                                                    console.log('[Stream Data] ✓✓✓ MERGED users_data from /content:', candidateStream.users_data.length, 'users');
-                                                }
-                                                if (candidateStream.comments_data && Array.isArray(candidateStream.comments_data)) {
-                                                    stream.comments_data = candidateStream.comments_data;
-                                                }
-                                                if (candidateStream.wp_core_data && typeof candidateStream.wp_core_data === 'object') {
-                                                    stream.wp_core_data = candidateStream.wp_core_data;
-                                                }
-                                                if (candidateStream.content_metrics && typeof candidateStream.content_metrics === 'object') {
-                                                    stream.content_metrics = candidateStream.content_metrics;
-                                                }
-                                                // Merge all other WordPress-specific fields
-                                                if (candidateStream.wp_version) stream.wp_version = candidateStream.wp_version;
-                                                if (candidateStream.php_version) stream.php_version = candidateStream.php_version;
-                                                if (candidateStream.mysql_version) stream.mysql_version = candidateStream.mysql_version;
-                                                if (candidateStream.posts_total !== undefined) stream.posts_total = candidateStream.posts_total;
-                                                if (candidateStream.pages_total !== undefined) stream.pages_total = candidateStream.pages_total;
-                                                if (candidateStream.users_total !== undefined) stream.users_total = candidateStream.users_total;
-                                                if (candidateStream.comments_total !== undefined) stream.comments_total = candidateStream.comments_total;
-                                                if (candidateStream.plugins_total !== undefined) stream.plugins_total = candidateStream.plugins_total;
-                                                if (candidateStream.plugins_active !== undefined) stream.plugins_active = candidateStream.plugins_active;
-                                                if (candidateStream.plugins_needing_update !== undefined) stream.plugins_needing_update = candidateStream.plugins_needing_update;
-                                                if (candidateStream.themes_total !== undefined) stream.themes_total = candidateStream.themes_total;
-                                                if (candidateStream.themes_needing_update !== undefined) stream.themes_needing_update = candidateStream.themes_needing_update;
+                                                mergeWordPressData(stream, candidateStream);
                                                 break;
+                                            }
                                             }
                                         }
                                     }
@@ -3732,29 +3757,9 @@
                             
                             // Also check if WordPress data is at the root level of /content response
                             if (contentData && typeof contentData === 'object') {
-                                if (contentData.posts_data && Array.isArray(contentData.posts_data) && (!stream.posts_data || stream.posts_data.length === 0)) {
-                                    stream.posts_data = contentData.posts_data;
-                                    console.log('[Stream Data] ✓✓✓ MERGED posts_data from /content root level');
-                                }
-                                if (contentData.pages_data && Array.isArray(contentData.pages_data) && (!stream.pages_data || stream.pages_data.length === 0)) {
-                                    stream.pages_data = contentData.pages_data;
-                                    console.log('[Stream Data] ✓✓✓ MERGED pages_data from /content root level');
-                                }
-                                if (contentData.plugins_data && Array.isArray(contentData.plugins_data) && (!stream.plugins_data || stream.plugins_data.length === 0)) {
-                                    stream.plugins_data = contentData.plugins_data;
-                                    console.log('[Stream Data] ✓✓✓ MERGED plugins_data from /content root level');
-                                }
-                                if (contentData.themes_data && Array.isArray(contentData.themes_data) && (!stream.themes_data || stream.themes_data.length === 0)) {
-                                    stream.themes_data = contentData.themes_data;
-                                    console.log('[Stream Data] ✓✓✓ MERGED themes_data from /content root level');
-                                }
-                                if (contentData.users_data && Array.isArray(contentData.users_data) && (!stream.users_data || stream.users_data.length === 0)) {
-                                    stream.users_data = contentData.users_data;
-                                    console.log('[Stream Data] ✓✓✓ MERGED users_data from /content root level');
-                                }
+                                mergeWordPressData(stream, contentData);
                             }
-                        }
-                        
+
                         // Try /data-streams endpoint which might have the full nested data
                         console.log('[Stream Data] Fetching from /data-streams endpoint for full stream data...');
                         try {
@@ -3787,54 +3792,7 @@
                                                 
                                                 if (isWordPress) {
                                                     console.log('[Stream Data] ✓✓✓ FOUND WORDPRESS STREAM in /data-streams[' + key + ']');
-                                                    console.log('[Stream Data] Data-streams candidate has posts_data:', !!candidateStream.posts_data, candidateStream.posts_data?.length);
-                                                    console.log('[Stream Data] Data-streams candidate has pages_data:', !!candidateStream.pages_data, candidateStream.pages_data?.length);
-                                                    console.log('[Stream Data] Data-streams candidate has plugins_data:', !!candidateStream.plugins_data, candidateStream.plugins_data?.length);
-                                                    console.log('[Stream Data] Data-streams candidate ALL keys:', Object.keys(candidateStream));
-                                                    
-                                                    // FORCE MERGE ALL WordPress data from /data-streams
-                                                    if (candidateStream.posts_data && Array.isArray(candidateStream.posts_data)) {
-                                                        stream.posts_data = candidateStream.posts_data;
-                                                        console.log('[Stream Data] ✓✓✓ MERGED posts_data from /data-streams:', candidateStream.posts_data.length, 'posts');
-                                                    }
-                                                    if (candidateStream.pages_data && Array.isArray(candidateStream.pages_data)) {
-                                                        stream.pages_data = candidateStream.pages_data;
-                                                        console.log('[Stream Data] ✓✓✓ MERGED pages_data from /data-streams:', candidateStream.pages_data.length, 'pages');
-                                                    }
-                                                    if (candidateStream.plugins_data && Array.isArray(candidateStream.plugins_data)) {
-                                                        stream.plugins_data = candidateStream.plugins_data;
-                                                        console.log('[Stream Data] ✓✓✓ MERGED plugins_data from /data-streams:', candidateStream.plugins_data.length, 'plugins');
-                                                    }
-                                                    if (candidateStream.themes_data && Array.isArray(candidateStream.themes_data)) {
-                                                        stream.themes_data = candidateStream.themes_data;
-                                                        console.log('[Stream Data] ✓✓✓ MERGED themes_data from /data-streams:', candidateStream.themes_data.length, 'themes');
-                                                    }
-                                                    if (candidateStream.users_data && Array.isArray(candidateStream.users_data)) {
-                                                        stream.users_data = candidateStream.users_data;
-                                                        console.log('[Stream Data] ✓✓✓ MERGED users_data from /data-streams:', candidateStream.users_data.length, 'users');
-                                                    }
-                                                    if (candidateStream.comments_data && Array.isArray(candidateStream.comments_data)) {
-                                                        stream.comments_data = candidateStream.comments_data;
-                                                    }
-                                                    if (candidateStream.wp_core_data && typeof candidateStream.wp_core_data === 'object') {
-                                                        stream.wp_core_data = candidateStream.wp_core_data;
-                                                    }
-                                                    if (candidateStream.content_metrics && typeof candidateStream.content_metrics === 'object') {
-                                                        stream.content_metrics = candidateStream.content_metrics;
-                                                    }
-                                                    // Merge all other WordPress-specific fields
-                                                    if (candidateStream.wp_version) stream.wp_version = candidateStream.wp_version;
-                                                    if (candidateStream.php_version) stream.php_version = candidateStream.php_version;
-                                                    if (candidateStream.mysql_version) stream.mysql_version = candidateStream.mysql_version;
-                                                    if (candidateStream.posts_total !== undefined) stream.posts_total = candidateStream.posts_total;
-                                                    if (candidateStream.pages_total !== undefined) stream.pages_total = candidateStream.pages_total;
-                                                    if (candidateStream.users_total !== undefined) stream.users_total = candidateStream.users_total;
-                                                    if (candidateStream.comments_total !== undefined) stream.comments_total = candidateStream.comments_total;
-                                                    if (candidateStream.plugins_total !== undefined) stream.plugins_total = candidateStream.plugins_total;
-                                                    if (candidateStream.plugins_active !== undefined) stream.plugins_active = candidateStream.plugins_active;
-                                                    if (candidateStream.plugins_needing_update !== undefined) stream.plugins_needing_update = candidateStream.plugins_needing_update;
-                                                    if (candidateStream.themes_total !== undefined) stream.themes_total = candidateStream.themes_total;
-                                                    if (candidateStream.themes_needing_update !== undefined) stream.themes_needing_update = candidateStream.themes_needing_update;
+                                                    mergeWordPressData(stream, candidateStream);
                                                     break;
                                                 }
                                             }
@@ -3890,41 +3848,7 @@
                                                     (candidateStream.id && stream.id && candidateStream.id.includes(stream.id)) ||
                                                     (stream.id && candidateStream.id && stream.id.includes(candidateStream.id))) {
                                                     
-                                                    // Merge ALL WordPress-specific data from all-connections (more robust)
-                                                    // Remove conditional checks - always merge if found
-                                                    if (streamData.posts_data && Array.isArray(streamData.posts_data)) {
-                                                        stream.posts_data = streamData.posts_data;
-                                                        console.log('[Stream Data] ✓✓✓ MERGED posts_data from all-connections:', streamData.posts_data.length, 'posts');
-                                                    }
-                                                    if (streamData.pages_data && Array.isArray(streamData.pages_data)) {
-                                                        stream.pages_data = streamData.pages_data;
-                                                        console.log('[Stream Data] ✓✓✓ MERGED pages_data from all-connections:', streamData.pages_data.length, 'pages');
-                                                    }
-                                                    if (streamData.plugins_data && Array.isArray(streamData.plugins_data)) {
-                                                        stream.plugins_data = streamData.plugins_data;
-                                                        console.log('[Stream Data] ✓✓✓ MERGED plugins_data from all-connections:', streamData.plugins_data.length, 'plugins');
-                                                    }
-                                                    if (streamData.themes_data && Array.isArray(streamData.themes_data)) {
-                                                        stream.themes_data = streamData.themes_data;
-                                                        console.log('[Stream Data] ✓✓✓ MERGED themes_data from all-connections:', streamData.themes_data.length, 'themes');
-                                                    }
-                                                    if (streamData.users_data && Array.isArray(streamData.users_data)) {
-                                                        stream.users_data = streamData.users_data;
-                                                        console.log('[Stream Data] ✓✓✓ MERGED users_data from all-connections:', streamData.users_data.length, 'users');
-                                                    }
-                                                    if (streamData.comments_data && Array.isArray(streamData.comments_data)) {
-                                                        stream.comments_data = streamData.comments_data;
-                                                    }
-                                                    if (streamData.wp_core_data && typeof streamData.wp_core_data === 'object') {
-                                                        stream.wp_core_data = streamData.wp_core_data;
-                                                    }
-                                                    if (streamData.content_metrics && typeof streamData.content_metrics === 'object') {
-                                                        stream.content_metrics = streamData.content_metrics;
-                                                    }
-                                                    // Merge all other WordPress-specific fields
-                                                    if (streamData.wp_version) stream.wp_version = streamData.wp_version;
-                                                    if (streamData.php_version) stream.php_version = streamData.php_version;
-                                                    if (streamData.mysql_version) stream.mysql_version = streamData.mysql_version;
+                                                    mergeWordPressData(stream, streamData);
                                                     break; // Found and merged, exit loop
                                                 }
                                             }
@@ -3934,6 +3858,7 @@
                                 
                                 // Also check if WordPress data is at the all-connections level (not in client_streams)
                                 if (allConnections && typeof allConnections === 'object') {
+                                    mergeWordPressData(stream, allConnections);
                                     if (allConnections.posts_data && Array.isArray(allConnections.posts_data) && !stream.posts_data) {
                                         stream.posts_data = allConnections.posts_data;
                                         console.log('[Stream Data] ✓ Merged posts_data from all-connections root level');
