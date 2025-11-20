@@ -3966,6 +3966,33 @@
                     stream.comments_total = wpContent.total_comments;
                 }
 
+                // WordPress Core Information
+                html += '<h2 style="margin-top: 40px; margin-bottom: 20px; border-bottom: 1px solid #5A5753; padding-bottom: 10px;">WordPress Core Information</h2>';
+                html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px;">';
+                if (stream.wp_version) {
+                    html += '<div><strong>WordPress Version:</strong> ' + stream.wp_version + '</div>';
+                }
+                if (stream.php_version) {
+                    html += '<div><strong>PHP Version:</strong> ' + stream.php_version + '</div>';
+                }
+                if (stream.mysql_version) {
+                    html += '<div><strong>MySQL Version:</strong> ' + stream.mysql_version + '</div>';
+                }
+                html += '</div>';
+                
+                // Content Statistics
+                html += '<h2 style="margin-top: 40px; margin-bottom: 20px; border-bottom: 1px solid #5A5753; padding-bottom: 10px;">Content Statistics</h2>';
+                html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px;">';
+                if (stream.posts_total !== undefined) {
+                    html += '<div><strong>Posts:</strong> ' + stream.posts_total + '</div>';
+                }
+                if (stream.pages_total === undefined && wpContent.total_pages !== undefined) {
+                    stream.pages_total = wpContent.total_pages;
+                }
+                if (stream.comments_total === undefined && wpContent.total_comments !== undefined) {
+                    stream.comments_total = wpContent.total_comments;
+                }
+
                 const arrayFrom = (...candidates) => {
                     for (const candidate of candidates) {
                         if (Array.isArray(candidate) && candidate.length) {
@@ -4087,9 +4114,235 @@
                     if (contentMetrics.visits || contentMetrics.sessions) {
                         metrics.push(`Site visits: ${contentMetrics.visits || contentMetrics.sessions} sessions; bounce ${contentMetrics.bounce_rate ? `${contentMetrics.bounce_rate}%` : 'N/A'}.`);
                     }
-                    if (contentMetrics.regions && Array.isArray(contentMetrics.regions) && contentMetrics.regions.length) {
-                        const topRegions = contentMetrics.regions.slice(0, 3).map(r => r.region || r.name || r.country).filter(Boolean);
-                        if (topRegions.length) metrics.push(`Core regions: ${topRegions.join(', ')}.`);
+                    html += '</div>';
+                    
+                    // Themes List - check multiple possible locations
+                    const themesData = stream.themes_data || stream.themes || (stream.data && stream.data.themes_data) || (stream.data && stream.data.themes) || [];
+                    if (Array.isArray(themesData) && themesData.length > 0) {
+                        html += '<div style="margin-bottom: 30px;">';
+                        html += '<h3 style="margin-bottom: 15px;">Theme Details (' + themesData.length + ')</h3>';
+                        html += '<div style="display: grid; gap: 15px;">';
+                        themesData.forEach(theme => {
+                            html += '<div style="background: #1f1d1a; border: 1px solid #5A575335; border-radius: 6px; padding: 20px;">';
+                            html += '<div style="font-weight: bold; font-size: 1.1em; margin-bottom: 12px; color: #fff4e9;">' + (theme.name || 'Unknown Theme') + '</div>';
+                            
+                            // Display ALL theme fields
+                            html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; font-size: 0.85em; opacity: 0.8;">';
+                            if (theme.slug) html += '<div><strong>Slug:</strong> ' + theme.slug + '</div>';
+                            if (theme.version) html += '<div><strong>Version:</strong> ' + theme.version + '</div>';
+                            if (theme.author) html += '<div><strong>Author:</strong> ' + theme.author + '</div>';
+                            if (theme.author_uri) html += '<div><strong>Author URI:</strong> <a href="' + theme.author_uri + '" target="_blank" style="color: #fff4e9;">' + theme.author_uri + '</a></div>';
+                            if (theme.theme_uri) html += '<div><strong>Theme URI:</strong> <a href="' + theme.theme_uri + '" target="_blank" style="color: #fff4e9;">' + theme.theme_uri + '</a></div>';
+                            if (theme.text_domain) html += '<div><strong>Text Domain:</strong> ' + theme.text_domain + '</div>';
+                            if (theme.domain_path) html += '<div><strong>Domain Path:</strong> ' + theme.domain_path + '</div>';
+                            if (theme.requires_wp) html += '<div><strong>Requires WP:</strong> ' + theme.requires_wp + '</div>';
+                            if (theme.tested_wp !== undefined) html += '<div><strong>Tested WP:</strong> ' + (theme.tested_wp ? 'Yes' : 'No') + '</div>';
+                            if (theme.requires_php) html += '<div><strong>Requires PHP:</strong> ' + theme.requires_php + '</div>';
+                            if (theme.status) html += '<div><strong>Status:</strong> <span style="color: ' + (theme.status === 'active' ? '#4ade80' : '#9A9793') + ';">' + theme.status + '</span></div>';
+                            if (theme.needs_update !== undefined) {
+                                html += '<div><strong>Needs Update:</strong> <span style="color: ' + (theme.needs_update ? '#ff6b6b' : '#4ade80') + ';">' + (theme.needs_update ? 'Yes' : 'No') + '</span></div>';
+                            }
+                            if (theme.update_version) html += '<div><strong>Update Version:</strong> <span style="color: #ff6b6b;">' + theme.update_version + '</span></div>';
+                            if (theme.template) html += '<div><strong>Template:</strong> ' + theme.template + '</div>';
+                            if (theme.parent) html += '<div><strong>Parent:</strong> ' + theme.parent + '</div>';
+                            if (theme.last_modified) html += '<div><strong>Last Modified:</strong> ' + theme.last_modified + '</div>';
+                            html += '</div>';
+                            
+                            if (theme.description) {
+                                html += '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #5A575335; font-size: 0.9em; opacity: 0.8; line-height: 1.5;">' + theme.description + '</div>';
+                            }
+                            html += '</div>';
+                        });
+                        html += '</div>';
+                        html += '</div>';
+                    } else if (stream.themes_total > 0) {
+                        html += '<div style="margin-bottom: 30px; opacity: 0.7; font-style: italic;">Theme details not available in stream data.</div>';
+                    }
+                }
+                
+                // WordPress Core Data
+                if (stream.wp_core_data) {
+                    html += '<h2 style="margin-top: 40px; margin-bottom: 20px; border-bottom: 1px solid #5A5753; padding-bottom: 10px;">WordPress Core Configuration</h2>';
+                    html += '<div style="background: #1f1d1a; border: 1px solid #5A575335; border-radius: 6px; padding: 20px; margin-bottom: 30px;">';
+                    const coreData = stream.wp_core_data;
+                    html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">';
+                    if (coreData.site_url) html += '<div><strong>Site URL:</strong> <a href="' + coreData.site_url + '" target="_blank" style="color: #fff4e9;">' + coreData.site_url + '</a></div>';
+                    if (coreData.home_url) html += '<div><strong>Home URL:</strong> <a href="' + coreData.home_url + '" target="_blank" style="color: #fff4e9;">' + coreData.home_url + '</a></div>';
+                    if (coreData.admin_email) html += '<div><strong>Admin Email:</strong> ' + coreData.admin_email + '</div>';
+                    if (coreData.timezone) html += '<div><strong>Timezone:</strong> ' + coreData.timezone + '</div>';
+                    if (coreData.language) html += '<div><strong>Language:</strong> ' + coreData.language + '</div>';
+                    if (coreData.permalink_structure) html += '<div><strong>Permalink Structure:</strong> ' + coreData.permalink_structure + '</div>';
+                    if (coreData.memory_limit) html += '<div><strong>Memory Limit:</strong> ' + coreData.memory_limit + '</div>';
+                    if (coreData.max_execution_time) html += '<div><strong>Max Execution Time:</strong> ' + coreData.max_execution_time + 's</div>';
+                    if (coreData.upload_max_filesize) html += '<div><strong>Upload Max Filesize:</strong> ' + coreData.upload_max_filesize + '</div>';
+                    if (coreData.is_multisite !== undefined) html += '<div><strong>Multisite:</strong> ' + (coreData.is_multisite ? 'Yes' : 'No') + '</div>';
+                    html += '</div>';
+                    html += '</div>';
+                }
+                
+                // Posts Data - check multiple possible locations
+                const postsData = stream.posts_data || stream.posts || (stream.data && stream.data.posts_data) || (stream.data && stream.data.posts) || (stream.wordpress_content && stream.wordpress_content.posts) || [];
+                if (Array.isArray(postsData) && postsData.length > 0) {
+                    html += '<h2 style="margin-top: 40px; margin-bottom: 20px; border-bottom: 1px solid #5A5753; padding-bottom: 10px;">Posts (' + postsData.length + ')</h2>';
+                    html += '<div style="display: grid; gap: 15px; margin-bottom: 30px;">';
+                    postsData.forEach(post => {
+                        html += '<div style="background: #1f1d1a; border: 1px solid #5A575335; border-radius: 6px; padding: 20px;">';
+                        html += '<div style="font-weight: bold; font-size: 1.1em; margin-bottom: 12px;"><a href="' + (post.url || '#') + '" target="_blank" style="color: #fff4e9; text-decoration: underline;">' + (post.title || 'Untitled') + '</a></div>';
+                        
+                        if (post.excerpt) {
+                            html += '<div style="opacity: 0.8; margin-bottom: 12px; font-size: 0.9em; line-height: 1.5; padding-bottom: 12px; border-bottom: 1px solid #5A575335;">' + post.excerpt + '</div>';
+                        }
+                        
+                        // Display ALL post fields
+                        html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; font-size: 0.85em; opacity: 0.8;">';
+                        if (post.id) html += '<div><strong>ID:</strong> ' + post.id + '</div>';
+                        if (post.slug) html += '<div><strong>Slug:</strong> ' + post.slug + '</div>';
+                        if (post.date_published) html += '<div><strong>Published:</strong> ' + post.date_published + '</div>';
+                        if (post.date_published_gmt) html += '<div><strong>Published (GMT):</strong> ' + post.date_published_gmt + '</div>';
+                        if (post.last_updated) html += '<div><strong>Last Updated:</strong> ' + post.last_updated + '</div>';
+                        if (post.last_updated_gmt) html += '<div><strong>Last Updated (GMT):</strong> ' + post.last_updated_gmt + '</div>';
+                        if (post.word_count) html += '<div><strong>Word Count:</strong> ' + post.word_count + '</div>';
+                        if (post.status) html += '<div><strong>Status:</strong> <span style="color: ' + (post.status === 'publish' ? '#4ade80' : '#9A9793') + ';">' + post.status + '</span></div>';
+                        if (post.url) html += '<div><strong>URL:</strong> <a href="' + post.url + '" target="_blank" style="color: #fff4e9;">' + post.url + '</a></div>';
+                        
+                        // Author information (nested object)
+                        if (post.author) {
+                            if (typeof post.author === 'object') {
+                                html += '<div style="grid-column: 1 / -1; margin-top: 8px; padding-top: 8px; border-top: 1px solid #5A575335;"><strong>Author:</strong>';
+                                if (post.author.id) html += ' <span>ID: ' + post.author.id + '</span>';
+                                if (post.author.name) html += ' <span>Name: ' + post.author.name + '</span>';
+                                if (post.author.login) html += ' <span>Login: ' + post.author.login + '</span>';
+                                if (post.author.email) html += ' <span>Email: ' + post.author.email + '</span>';
+                                html += '</div>';
+                            } else {
+                                html += '<div><strong>Author:</strong> ' + post.author + '</div>';
+                            }
+                        }
+                        
+                        // Categories
+                        if (post.categories && Array.isArray(post.categories) && post.categories.length > 0) {
+                            html += '<div style="grid-column: 1 / -1;"><strong>Categories:</strong> ' + post.categories.join(', ') + '</div>';
+                        }
+                        
+                        // Tags
+                        if (post.tags && Array.isArray(post.tags) && post.tags.length > 0) {
+                            html += '<div style="grid-column: 1 / -1;"><strong>Tags:</strong> ' + post.tags.join(', ') + '</div>';
+                        }
+                        
+                        // Engagement metrics (nested object)
+                        if (post.engagement && typeof post.engagement === 'object') {
+                            html += '<div style="grid-column: 1 / -1; margin-top: 8px; padding-top: 8px; border-top: 1px solid #5A575335;"><strong>Engagement:</strong>';
+                            if (post.engagement.comments !== undefined) html += ' <span>Comments: ' + post.engagement.comments + '</span>';
+                            if (post.engagement.views !== undefined) html += ' <span>Views: ' + post.engagement.views + '</span>';
+                            html += '</div>';
+                        }
+                        
+                        html += '</div>';
+                        html += '</div>';
+                    });
+                    html += '</div>';
+                } else if (stream.posts_total > 0) {
+                    html += '<h2 style="margin-top: 40px; margin-bottom: 20px; border-bottom: 1px solid #5A5753; padding-bottom: 10px;">Posts</h2>';
+                    html += '<div style="margin-bottom: 30px; opacity: 0.7; font-style: italic;">Post details not available in stream data. Total posts: ' + stream.posts_total + '</div>';
+                }
+                
+                // Pages Data - check multiple possible locations
+                const pagesData = stream.pages_data || stream.pages || (stream.data && stream.data.pages_data) || (stream.data && stream.data.pages) || (stream.wordpress_content && stream.wordpress_content.pages) || [];
+                if (Array.isArray(pagesData) && pagesData.length > 0) {
+                    html += '<h2 style="margin-top: 40px; margin-bottom: 20px; border-bottom: 1px solid #5A5753; padding-bottom: 10px;">Pages (' + pagesData.length + ')</h2>';
+                    html += '<div style="display: grid; gap: 15px; margin-bottom: 30px;">';
+                    pagesData.forEach(page => {
+                        html += '<div style="background: #1f1d1a; border: 1px solid #5A575335; border-radius: 6px; padding: 20px;">';
+                        html += '<div style="font-weight: bold; font-size: 1.1em; margin-bottom: 12px;"><a href="' + (page.url || '#') + '" target="_blank" style="color: #fff4e9; text-decoration: underline;">' + (page.title || 'Untitled') + '</a></div>';
+                        
+                        if (page.excerpt) {
+                            html += '<div style="opacity: 0.8; margin-bottom: 12px; font-size: 0.9em; line-height: 1.5; padding-bottom: 12px; border-bottom: 1px solid #5A575335;">' + page.excerpt + '</div>';
+                        }
+                        
+                        // Display ALL page fields
+                        html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; font-size: 0.85em; opacity: 0.8;">';
+                        if (page.id) html += '<div><strong>ID:</strong> ' + page.id + '</div>';
+                        if (page.slug) html += '<div><strong>Slug:</strong> ' + page.slug + '</div>';
+                        if (page.date_published) html += '<div><strong>Published:</strong> ' + page.date_published + '</div>';
+                        if (page.last_updated) html += '<div><strong>Last Updated:</strong> ' + page.last_updated + '</div>';
+                        if (page.word_count) html += '<div><strong>Word Count:</strong> ' + page.word_count + '</div>';
+                        if (page.status) html += '<div><strong>Status:</strong> <span style="color: ' + (page.status === 'publish' ? '#4ade80' : '#9A9793') + ';">' + page.status + '</span></div>';
+                        if (page.url) html += '<div><strong>URL:</strong> <a href="' + page.url + '" target="_blank" style="color: #fff4e9;">' + page.url + '</a></div>';
+                        if (page.parent) html += '<div><strong>Parent ID:</strong> ' + page.parent + '</div>';
+                        
+                        // Author information (nested object)
+                        if (page.author) {
+                            if (typeof page.author === 'object') {
+                                html += '<div style="grid-column: 1 / -1; margin-top: 8px; padding-top: 8px; border-top: 1px solid #5A575335;"><strong>Author:</strong>';
+                                if (page.author.id) html += ' <span>ID: ' + page.author.id + '</span>';
+                                if (page.author.name) html += ' <span>Name: ' + page.author.name + '</span>';
+                                if (page.author.login) html += ' <span>Login: ' + page.author.login + '</span>';
+                                html += '</div>';
+                            } else {
+                                html += '<div><strong>Author:</strong> ' + page.author + '</div>';
+                            }
+                        }
+                        html += '</div>';
+                        html += '</div>';
+                    });
+                    html += '</div>';
+                } else if (stream.pages_total > 0) {
+                    html += '<h2 style="margin-top: 40px; margin-bottom: 20px; border-bottom: 1px solid #5A5753; padding-bottom: 10px;">Pages</h2>';
+                    html += '<div style="margin-bottom: 30px; opacity: 0.7; font-style: italic;">Page details not available in stream data. Total pages: ' + stream.pages_total + '</div>';
+                }
+                
+                // Users Data - check multiple possible locations
+                const usersData = stream.users_data || stream.users || (stream.data && stream.data.users_data) || (stream.data && stream.data.users) || stream.wordpress_users || [];
+                if (Array.isArray(usersData) && usersData.length > 0) {
+                    html += '<h2 style="margin-top: 40px; margin-bottom: 20px; border-bottom: 1px solid #5A5753; padding-bottom: 10px;">Users (' + usersData.length + ')</h2>';
+                    html += '<div style="display: grid; gap: 15px; margin-bottom: 30px;">';
+                    usersData.forEach(user => {
+                        html += '<div style="background: #1f1d1a; border: 1px solid #5A575335; border-radius: 6px; padding: 20px;">';
+                        html += '<div style="font-weight: bold; font-size: 1.1em; margin-bottom: 12px; color: #fff4e9;">' + (user.display_name || user.name || user.login || 'Unknown User') + '</div>';
+                        
+                        // Display ALL user fields
+                        html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; font-size: 0.85em; opacity: 0.8;">';
+                        if (user.id) html += '<div><strong>ID:</strong> ' + user.id + '</div>';
+                        if (user.login) html += '<div><strong>Login:</strong> ' + user.login + '</div>';
+                        if (user.email) html += '<div><strong>Email:</strong> ' + user.email + '</div>';
+                        if (user.display_name) html += '<div><strong>Display Name:</strong> ' + user.display_name + '</div>';
+                        if (user.first_name) html += '<div><strong>First Name:</strong> ' + user.first_name + '</div>';
+                        if (user.last_name) html += '<div><strong>Last Name:</strong> ' + user.last_name + '</div>';
+                        if (user.nickname) html += '<div><strong>Nickname:</strong> ' + user.nickname + '</div>';
+                        if (user.roles && Array.isArray(user.roles) && user.roles.length > 0) {
+                            html += '<div><strong>Roles:</strong> ' + user.roles.join(', ') + '</div>';
+                        }
+                        if (user.registered) html += '<div><strong>Registered:</strong> ' + user.registered + '</div>';
+                        if (user.description) html += '<div><strong>Description:</strong> ' + user.description + '</div>';
+                        if (user.last_login) html += '<div><strong>Last Login:</strong> ' + user.last_login + '</div>';
+                        if (user.post_count !== undefined) html += '<div><strong>Post Count:</strong> ' + user.post_count + '</div>';
+                        if (user.url) html += '<div><strong>URL:</strong> <a href="' + user.url + '" target="_blank" style="color: #fff4e9;">' + user.url + '</a></div>';
+                        html += '</div>';
+                        html += '</div>';
+                    });
+                    html += '</div>';
+                } else if (stream.users_total > 0) {
+                    html += '<h2 style="margin-top: 40px; margin-bottom: 20px; border-bottom: 1px solid #5A5753; padding-bottom: 10px;">Users</h2>';
+                    html += '<div style="margin-bottom: 30px; opacity: 0.7; font-style: italic;">User details not available in stream data. Total users: ' + stream.users_total + '</div>';
+                }
+                
+                // Content Metrics
+                if (stream.content_metrics) {
+                    html += '<h2 style="margin-top: 40px; margin-bottom: 20px; border-bottom: 1px solid #5A5753; padding-bottom: 10px;">Content Metrics</h2>';
+                    html += '<div style="background: #1f1d1a; border: 1px solid #5A575335; border-radius: 6px; padding: 20px; margin-bottom: 30px;">';
+                    const metrics = stream.content_metrics;
+                    html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">';
+                    if (metrics.total_word_count !== undefined) html += '<div><strong>Total Word Count:</strong> ' + metrics.total_word_count.toLocaleString() + '</div>';
+                    if (metrics.average_word_count_per_post !== undefined) html += '<div><strong>Average Words Per Post:</strong> ' + metrics.average_word_count_per_post.toLocaleString() + '</div>';
+                    html += '</div>';
+                    if (metrics.top_keywords && Object.keys(metrics.top_keywords).length > 0) {
+                        html += '<h3 style="margin-top: 20px; margin-bottom: 15px;">Top Keywords</h3>';
+                        html += '<div style="display: flex; flex-wrap: wrap; gap: 10px;">';
+                        const sortedKeywords = Object.entries(metrics.top_keywords).sort((a, b) => b[1] - a[1]).slice(0, 20);
+                        sortedKeywords.forEach(([keyword, count]) => {
+                            html += '<span style="background: #2E2C2A; padding: 5px 12px; border-radius: 4px; font-size: 0.85em;">' + keyword + ' (' + count + ')</span>';
+                        });
+                        html += '</div>';
                     }
                     if (contentMetrics.top_pages && Array.isArray(contentMetrics.top_pages) && contentMetrics.top_pages.length) {
                         const topPages = contentMetrics.top_pages.slice(0, 3).map(p => p.title || p.url || p.path).filter(Boolean);
@@ -4298,7 +4551,7 @@
                                 } catch (err) {
                                     console.warn('Could not store AI Summary prompt', err);
                                 }
-                                window.open(`/?license=${encodeURIComponent(licenseParam)}/luna-compose`, '_blank');
+                                window.open(`/luna-compose?license=${encodeURIComponent(licenseParam)}`, '_blank');
                             } else if (action === 'send-to') {
                                 window.location.href = '#';
                             }
@@ -7904,17 +8157,12 @@
         }
 
         function lunaComposerExtractActionables(answerHtml) {
-            const normalizedHtml = (answerHtml || '')
-                .replace(/<br\s*\/?\s*>/gi, '\n')
-                .replace(/<\/(p|div|li|h[1-6]|ul|ol)\s*>/gi, '\n')
-                .replace(/<[^>]+>/g, ' ');
-            const rawText = (normalizedHtml || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+            const tmp = document.createElement('div');
+            tmp.innerHTML = answerHtml || '';
+            const rawText = (tmp.textContent || '').replace(/\u00a0/g, ' ').trim();
             if (!rawText) return [];
 
-            const lines = (normalizedHtml || '')
-                .split(/\n+/)
-                .map(line => line.replace(/\u00a0/g, ' ').trim())
-                .filter(Boolean);
+            const lines = rawText.split(/\n+/).map(line => line.trim()).filter(Boolean);
             const actions = [];
 
             const pushAction = (value) => {
@@ -7955,18 +8203,6 @@
                     if (lines[idx + 1]) pushAction(lines[idx + 1]);
                 }
             });
-
-            if (!actions.length) {
-                const sentences = rawText.split(/(?<=[.!?])\s+/).filter(Boolean);
-                sentences.forEach(sentence => {
-                    if (/next step|recommend|consider/i.test(sentence)) {
-                        pushAction(sentence);
-                    }
-                });
-                if (!actions.length && sentences.length) {
-                    pushAction(sentences[sentences.length - 1]);
-                }
-            }
 
             return actions.slice(0, 3);
         }
