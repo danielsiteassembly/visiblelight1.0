@@ -8162,17 +8162,12 @@
         }
 
         function lunaComposerExtractActionables(answerHtml) {
-            const normalizedHtml = (answerHtml || '')
-                .replace(/<br\s*\/?\s*>/gi, '\n')
-                .replace(/<\/(p|div|li|h[1-6]|ul|ol)\s*>/gi, '\n')
-                .replace(/<[^>]+>/g, ' ');
-            const rawText = (normalizedHtml || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+            const tmp = document.createElement('div');
+            tmp.innerHTML = answerHtml || '';
+            const rawText = (tmp.textContent || '').replace(/\u00a0/g, ' ').trim();
             if (!rawText) return [];
 
-            const lines = (normalizedHtml || '')
-                .split(/\n+/)
-                .map(line => line.replace(/\u00a0/g, ' ').trim())
-                .filter(Boolean);
+            const lines = rawText.split(/\n+/).map(line => line.trim()).filter(Boolean);
             const actions = [];
 
             const pushAction = (value) => {
@@ -8213,18 +8208,6 @@
                     if (lines[idx + 1]) pushAction(lines[idx + 1]);
                 }
             });
-
-            if (!actions.length) {
-                const sentences = rawText.split(/(?<=[.!?])\s+/).filter(Boolean);
-                sentences.forEach(sentence => {
-                    if (/next step|recommend|consider/i.test(sentence)) {
-                        pushAction(sentence);
-                    }
-                });
-                if (!actions.length && sentences.length) {
-                    pushAction(sentences[sentences.length - 1]);
-                }
-            }
 
             return actions.slice(0, 3);
         }
