@@ -8054,6 +8054,177 @@
             
             console.log('[Luna Composer] Showing all', promptItems.length, 'items');
         };
+
+        function lunaComposerNormalizeActionText(text) {
+            return (text || '').replace(/\s+/g, ' ').replace(/^[^:]+:\s*/, '').trim();
+        }
+
+        function lunaComposerInferTeam(actionText) {
+            const lower = (actionText || '').toLowerCase();
+            if (lower.match(/security|waf|tls|ssl|firewall|vuln|patch/)) return 'Security';
+            if (lower.match(/plugin|theme|code|dev|engineering|bug|fix|update/)) return 'Engineering';
+            if (lower.match(/content|copy|page|post|blog|seo/)) return 'Content';
+            if (lower.match(/campaign|ads?|marketing|engagement/)) return 'Marketing';
+            return 'Operations';
+        }
+
+        function lunaComposerExtractActionables(answerHtml) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = answerHtml || '';
+            const rawText = (tmp.textContent || '').replace(/\u00a0/g, ' ').trim();
+            if (!rawText) return [];
+
+            const lines = rawText.split(/\n+/).map(line => line.trim()).filter(Boolean);
+            const actions = [];
+
+            const pushAction = (value) => {
+                const normalized = lunaComposerNormalizeActionText(value);
+                if (normalized && !actions.includes(normalized)) {
+                    actions.push(normalized);
+                }
+            };
+
+            lines.forEach((line, idx) => {
+                if (/^next steps?/i.test(line)) {
+                    const afterColon = line.split(/:/)[1];
+                    if (afterColon) {
+                        pushAction(afterColon);
+                    } else if (lines[idx + 1]) {
+                        pushAction(lines[idx + 1]);
+                    }
+                    if (lines[idx + 2] && lines[idx + 2].startsWith('-')) {
+                        pushAction(lines[idx + 2]);
+                    }
+                }
+
+                if (/^recommendations?/i.test(line)) {
+                    const afterColon = line.split(/:/)[1];
+                    if (afterColon) {
+                        pushAction(afterColon);
+                    }
+                    for (let offset = 1; offset <= 3; offset++) {
+                        if (lines[idx + offset] && /^[-•]/.test(lines[idx + offset])) {
+                            pushAction(lines[idx + offset]);
+                        }
+                    }
+                }
+
+                if (/^actionable next steps?/i.test(line)) {
+                    const afterColon = line.split(/:/)[1];
+                    if (afterColon) pushAction(afterColon);
+                    if (lines[idx + 1]) pushAction(lines[idx + 1]);
+                }
+            });
+
+            return actions.slice(0, 3);
+        }
+
+        function lunaComposerScheduleFollowup(promptText, licenseKey, type) {
+            const payload = {
+                prompt: lunaComposerNormalizeActionText(promptText),
+                license: licenseKey || null,
+                created: Date.now(),
+                type: type || 'followup'
+            };
+            try {
+                localStorage.setItem('lunaComposerFollowupPrompt', JSON.stringify(payload));
+            } catch (e) {
+                console.warn('[Luna Composer] Failed to cache follow-up prompt:', e);
+            }
+
+            const newWin = window.open(window.location.href, '_blank');
+            if (!newWin) {
+                alert('Please allow pop-ups so Luna can open the follow-up in a new tab.');
+            }
+        }
+
+        function lunaComposerRenderActionables(answerHtml, promptText, licenseKey) {
+            const editor = document.getElementById('luna-composer-editor');
+            if (!editor) return;
+
+            const existing = document.getElementById('luna-composer-actionables');
+            if (existing) existing.remove();
+
+            const actions = lunaComposerExtractActionables(answerHtml);
+            if (!actions.length) return;
+
+            const wrapper = document.createElement('div');
+            wrapper.id = 'luna-composer-actionables';
+            wrapper.style.cssText = 'margin-top: 16px; padding: 16px; border: 1px solid #1f1d1a; border-radius: 8px; background: #0b0b0b; display: flex; flex-direction: column; gap: 12px; color: #fff4e9;';
+
+            const heading = document.createElement('div');
+            heading.textContent = 'Make Luna\'s recommendations actionable:';
+            heading.style.cssText = 'font-weight: 700; font-size: 1rem;';
+            wrapper.appendChild(heading);
+
+            actions.forEach((actionText, index) => {
+                const actionRow = document.createElement('div');
+                actionRow.style.cssText = 'border-top: 1px solid #1f1d1a; padding-top: 12px; margin-top: 12px; display: flex; flex-direction: column; gap: 10px;';
+
+                const actionLabel = document.createElement('div');
+                actionLabel.style.cssText = 'font-weight: 600; color: #d9d5d0;';
+                actionLabel.textContent = 'Recommendation ' + (index + 1) + ': ' + actionText;
+                actionRow.appendChild(actionLabel);
+
+                const followupPrompt = 'Would you like me to save this doc and run a new prompt with this recommendation?';
+                const followupBlock = document.createElement('div');
+                followupBlock.style.cssText = 'display: flex; flex-wrap: wrap; gap: 8px; align-items: center;';
+                const followupText = document.createElement('span');
+                followupText.textContent = followupPrompt;
+                followupText.style.cssText = 'flex: 1; min-width: 220px; color: #c8c4be;';
+                followupBlock.appendChild(followupText);
+
+                const yesFollow = document.createElement('button');
+                yesFollow.textContent = 'Yes — open follow-up';
+                yesFollow.style.cssText = 'background: #8D8C00; color: #000; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-weight: 700;';
+                yesFollow.addEventListener('click', () => {
+                    lunaComposerScheduleFollowup(actionText, licenseKey, 'recommendation');
+                });
+
+                const noFollow = document.createElement('button');
+                noFollow.textContent = 'No';
+                noFollow.style.cssText = 'background: #2E2C2A; color: #fff4e9; border: 1px solid #1f1d1a; padding: 8px 12px; border-radius: 6px; cursor: pointer;';
+                noFollow.addEventListener('click', () => {
+                    noFollow.disabled = true;
+                });
+
+                followupBlock.appendChild(yesFollow);
+                followupBlock.appendChild(noFollow);
+                actionRow.appendChild(followupBlock);
+
+                const team = lunaComposerInferTeam(actionText);
+                const ticketText = document.createElement('span');
+                ticketText.textContent = 'Would you like me to formulate a ticket summary for your ' + team + ' team?';
+                ticketText.style.cssText = 'flex: 1; min-width: 220px; color: #c8c4be;';
+
+                const ticketBlock = document.createElement('div');
+                ticketBlock.style.cssText = 'display: flex; flex-wrap: wrap; gap: 8px; align-items: center;';
+                ticketBlock.appendChild(ticketText);
+
+                const yesTicket = document.createElement('button');
+                yesTicket.textContent = 'Yes — draft ticket';
+                yesTicket.style.cssText = 'background: #5A5753; color: #fff4e9; border: 1px solid #1f1d1a; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-weight: 700;';
+                yesTicket.addEventListener('click', () => {
+                    const ticketPrompt = 'Create a hand-off ready ticket summary for the ' + team + ' team to address: ' + actionText + '. Include context, expected impact, and a concise checklist.';
+                    lunaComposerScheduleFollowup(ticketPrompt, licenseKey, 'ticket');
+                });
+
+                const noTicket = document.createElement('button');
+                noTicket.textContent = 'No';
+                noTicket.style.cssText = 'background: #2E2C2A; color: #fff4e9; border: 1px solid #1f1d1a; padding: 8px 12px; border-radius: 6px; cursor: pointer;';
+                noTicket.addEventListener('click', () => {
+                    noTicket.disabled = true;
+                });
+
+                ticketBlock.appendChild(yesTicket);
+                ticketBlock.appendChild(noTicket);
+                actionRow.appendChild(ticketBlock);
+
+                wrapper.appendChild(actionRow);
+            });
+
+            editor.appendChild(wrapper);
+        }
         
         window.lunaComposerUsePrompt = async function(promptId, promptText, responseContent) {
             console.log('[Luna Composer] Using prompt:', promptId, promptText);
@@ -8179,6 +8350,8 @@
                         editor.innerHTML = formattedAnswer;
                         editor.scrollTop = 0;
                         console.log('[Luna Composer] Response displayed in editor');
+
+                        lunaComposerRenderActionables(formattedAnswer, promptText, licenseKey);
                         
                         // Show and initialize heart icon state (defaults to dislike)
                         setTimeout(() => {
@@ -8358,6 +8531,37 @@
                 editor.innerHTML = '<p style="color: #d63638;">Error: ' + (e.message || 'Failed to connect to Luna') + '</p>';
             }
         };
+
+        window.lunaComposerAutoRunFollowup = function() {
+            let stored = null;
+            try {
+                stored = JSON.parse(localStorage.getItem('lunaComposerFollowupPrompt'));
+            } catch (e) {
+                stored = null;
+            }
+
+            if (!stored || !stored.prompt || (Date.now() - (stored.created || 0)) > 5 * 60 * 1000) {
+                return;
+            }
+
+            const editor = document.getElementById('luna-composer-editor');
+            if (!editor) {
+                setTimeout(window.lunaComposerAutoRunFollowup, 400);
+                return;
+            }
+
+            try {
+                localStorage.removeItem('lunaComposerFollowupPrompt');
+            } catch (e) {
+                console.warn('[Luna Composer] Failed to clear follow-up prompt cache:', e);
+            }
+
+            window.lunaComposerUsePrompt('auto_followup', stored.prompt, '');
+        };
+
+        window.addEventListener('load', () => {
+            setTimeout(window.lunaComposerAutoRunFollowup, 800);
+        });
         
         // Generate thought processes based on prompt
         function generateThoughtProcesses(promptText) {
