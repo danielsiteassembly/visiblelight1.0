@@ -240,64 +240,40 @@ function luna_composer_enhance_facts_text($facts_text, $facts) {
   if (!isset($facts['wordpress_data']) || !is_array($facts['wordpress_data'])) {
     return $facts_text;
   }
-  
+
   $wp_data = $facts['wordpress_data'];
-  
-  // Comprehensive Content Analysis for Strategy Tasks
+
+  // Lightweight content analysis for Composer without exploding token counts
   if (isset($wp_data['posts_data']) && is_array($wp_data['posts_data']) && !empty($wp_data['posts_data'])) {
-    $facts_text .= "\n=== CONTENT INFRASTRUCTURE ANALYSIS ===\n";
-    $facts_text .= "⚠️ CRITICAL FOR CONTENT STRATEGY TASKS: Use this section to analyze existing content patterns, identify gaps, and create data-driven content roadmaps.\n\n";
-    
-    // Collect all categories and tags
+    $facts_text .= "\n=== CONTENT PATTERNS (CONDENSED) ===\n";
+
     $all_categories = array();
     $all_tags = array();
     $publication_dates = array();
-    $topics_by_category = array();
-    $topics_by_tag = array();
     $word_count_ranges = array('short' => 0, 'medium' => 0, 'long' => 0);
-    $authors_list = array();
-    
+
     foreach ($wp_data['posts_data'] as $post) {
       if (!is_array($post)) continue;
-      
-      // Categories
+
+      // Categories and tags (counts only)
       if (isset($post['categories']) && is_array($post['categories'])) {
         foreach ($post['categories'] as $cat) {
-          if (!isset($all_categories[$cat])) {
-            $all_categories[$cat] = 0;
-          }
-          $all_categories[$cat]++;
-          if (!isset($topics_by_category[$cat])) {
-            $topics_by_category[$cat] = array();
-          }
-          $topics_by_category[$cat][] = isset($post['title']) ? $post['title'] : 'Untitled';
+          $all_categories[$cat] = isset($all_categories[$cat]) ? $all_categories[$cat] + 1 : 1;
         }
       }
-      
-      // Tags
       if (isset($post['tags']) && is_array($post['tags'])) {
         foreach ($post['tags'] as $tag) {
-          if (!isset($all_tags[$tag])) {
-            $all_tags[$tag] = 0;
-          }
-          $all_tags[$tag]++;
-          if (!isset($topics_by_tag[$tag])) {
-            $topics_by_tag[$tag] = array();
-          }
-          $topics_by_tag[$tag][] = isset($post['title']) ? $post['title'] : 'Untitled';
+          $all_tags[$tag] = isset($all_tags[$tag]) ? $all_tags[$tag] + 1 : 1;
         }
       }
-      
-      // Publication dates
+
+      // Publication dates (month buckets)
       if (isset($post['date_published'])) {
         $pub_date = date('Y-m', strtotime($post['date_published']));
-        if (!isset($publication_dates[$pub_date])) {
-          $publication_dates[$pub_date] = 0;
-        }
-        $publication_dates[$pub_date]++;
+        $publication_dates[$pub_date] = isset($publication_dates[$pub_date]) ? $publication_dates[$pub_date] + 1 : 1;
       }
-      
-      // Word count analysis
+
+      // Word count distribution
       $word_count = isset($post['word_count']) ? (int)$post['word_count'] : 0;
       if ($word_count > 0 && $word_count < 500) {
         $word_count_ranges['short']++;
@@ -306,242 +282,61 @@ function luna_composer_enhance_facts_text($facts_text, $facts) {
       } elseif ($word_count >= 1500) {
         $word_count_ranges['long']++;
       }
-      
-      // Authors
-      if (isset($post['author']['name'])) {
-        $author_name = $post['author']['name'];
-        if (!isset($authors_list[$author_name])) {
-          $authors_list[$author_name] = 0;
-        }
-        $authors_list[$author_name]++;
-      }
     }
-    
-    // Categories Analysis
+
+    // Categories (top 5)
     if (!empty($all_categories)) {
       arsort($all_categories);
-      $facts_text .= "CONTENT CATEGORIES (by frequency):\n";
+      $facts_text .= "Top categories by post count (max 5):\n";
+      $cat_count = 0;
       foreach ($all_categories as $cat => $count) {
-        $facts_text .= "  - " . esc_html($cat) . ": " . $count . " post(s)";
-        if (isset($topics_by_category[$cat]) && count($topics_by_category[$cat]) > 0) {
-          $facts_text .= " - Topics: " . implode(", ", array_slice(array_map('esc_html', $topics_by_category[$cat]), 0, 3));
-          if (count($topics_by_category[$cat]) > 3) {
-            $facts_text .= " (and " . (count($topics_by_category[$cat]) - 3) . " more)";
-          }
-        }
-        $facts_text .= "\n";
+        $facts_text .= "- " . esc_html($cat) . ": " . $count . " post(s)\n";
+        $cat_count++;
+        if ($cat_count >= 5) break;
       }
-      $facts_text .= "\n";
-    } else {
-      $facts_text .= "CONTENT CATEGORIES: None assigned\n\n";
     }
-    
-    // Tags Analysis
+
+    // Tags (top 8)
     if (!empty($all_tags)) {
       arsort($all_tags);
-      $facts_text .= "CONTENT TAGS (top 20 by frequency):\n";
+      $facts_text .= "Top tags (max 8):\n";
       $tag_count = 0;
       foreach ($all_tags as $tag => $count) {
-        if ($tag_count >= 20) break;
-        $facts_text .= "  - " . esc_html($tag) . ": " . $count . " post(s)";
-        if (isset($topics_by_tag[$tag]) && count($topics_by_tag[$tag]) > 0) {
-          $facts_text .= " - Used in: " . implode(", ", array_slice(array_map('esc_html', $topics_by_tag[$tag]), 0, 2));
-        }
-        $facts_text .= "\n";
+        $facts_text .= "- " . esc_html($tag) . ": " . $count . " post(s)\n";
         $tag_count++;
+        if ($tag_count >= 8) break;
       }
-      $facts_text .= "\n";
-    } else {
-      $facts_text .= "CONTENT TAGS: None assigned\n\n";
     }
-    
-    // Publication Pattern Analysis
+
+    // Publication cadence (last 12 months)
     if (!empty($publication_dates)) {
-      ksort($publication_dates);
-      $facts_text .= "PUBLICATION PATTERN (by month):\n";
+      krsort($publication_dates);
+      $facts_text .= "Recent publication cadence (up to 12 months):\n";
+      $month_count = 0;
       foreach ($publication_dates as $month => $count) {
-        $facts_text .= "  - " . $month . ": " . $count . " post(s)\n";
+        $facts_text .= "- " . $month . ": " . $count . " post(s)\n";
+        $month_count++;
+        if ($month_count >= 12) break;
       }
-      $facts_text .= "\n";
     }
-    
-    // Word Count Distribution
-    $facts_text .= "WORD COUNT DISTRIBUTION:\n";
-    $facts_text .= "  - Short posts (< 500 words): " . $word_count_ranges['short'] . "\n";
-    $facts_text .= "  - Medium posts (500-1499 words): " . $word_count_ranges['medium'] . "\n";
-    $facts_text .= "  - Long posts (1500+ words): " . $word_count_ranges['long'] . "\n\n";
-    
-    // Authors Analysis
-    if (!empty($authors_list)) {
-      arsort($authors_list);
-      $facts_text .= "CONTENT AUTHORS (by post count):\n";
-      foreach ($authors_list as $author => $count) {
-        $facts_text .= "  - " . esc_html($author) . ": " . $count . " post(s)\n";
-      }
-      $facts_text .= "\n";
+
+    // Word count distribution summary
+    $facts_text .= "Word count mix: short(<500): " . $word_count_ranges['short'] . ", medium(500-1499): " . $word_count_ranges['medium'] . ", long(1500+): " . $word_count_ranges['long'] . "\n";
+
+    // Hard cap to avoid ballooning Composer prompts
+    $content_cap = 4000;
+    if (strlen($facts_text) > $content_cap) {
+      $facts_text = substr($facts_text, 0, $content_cap) . "\n... [content analysis condensed to stay within OpenAI limits]\n";
     }
-    
-    // Content Gap Analysis Hints
-    $facts_text .= "CONTENT GAP ANALYSIS GUIDANCE:\n";
-    $facts_text .= "- Review the categories above - which categories have few or no posts? These represent content gaps.\n";
-    $facts_text .= "- Review the tags above - which topics/tags are underrepresented? These represent opportunities.\n";
-    $facts_text .= "- Review publication dates - are there gaps in publishing frequency? Consider filling those gaps.\n";
-    $facts_text .= "- Review word count distribution - consider diversifying content length for different user intents.\n";
-    $facts_text .= "- When creating a content roadmap, identify topics that complement existing categories and tags.\n";
-    $facts_text .= "- Consider creating content that bridges gaps between existing categories.\n";
-    $facts_text .= "- Analyze the actual post titles listed above to understand the content themes and topics already covered.\n";
-    $facts_text .= "- Use the exact post titles, categories, and tags from the data above to create a strategic, data-driven content plan.\n\n";
   }
-  
-  // Pages Analysis for Content Strategy
-  if (isset($wp_data['pages_data']) && is_array($wp_data['pages_data']) && !empty($wp_data['pages_data'])) {
-    $facts_text .= "PAGES CONTENT ANALYSIS:\n";
-    $facts_text .= "- Total Pages: " . count($wp_data['pages_data']) . "\n";
-    $facts_text .= "- Pages represent core site structure and can inform blog post topics that support or expand on page content.\n";
-    $facts_text .= "- Review the page titles listed above to identify topics that could be expanded into blog posts.\n";
-    $facts_text .= "- Consider creating blog posts that provide deeper dives into topics covered on key pages.\n\n";
-  }
-  
+
   return $facts_text;
 }
 
-/**
- * Enhance system prompt for Composer with content strategy instructions
- */
-add_filter('luna_composer_system_prompt', 'luna_composer_enhance_system_prompt', 10, 2);
 function luna_composer_enhance_system_prompt($system_prompt, $facts) {
-  // Return enhanced system prompt for Composer
-  $system_prompt = "
-You are Luna — an expert-level WebOps, DevOps, CloudOps, and Digital Marketing AI agent.
+  // Use a concise system prompt to keep Composer payloads small while staying data-grounded
+  $system_prompt = "You are Luna — an expert WebOps/CloudOps content strategist. Use only the VL Hub facts provided. Write warm, concise paragraphs that blend factual details with brief insight and finish with one actionable next step. Note when lists are truncated. If JSON is requested, respond in a single compact line without extra whitespace. Avoid repetition and keep responses efficient to respect model limits.";
 
-IDENTITY & ROLE:
-
-- You operate as a senior engineer and strategist, not a generic chatbot.
-
-- You are warm, friendly, confident, and helpful.
-
-- You always speak in complete, coherent sentences.
-
-DATA CONSUMPTION RULES:
-
-- You must consume, absorb, digest, analyze, and consider ALL data provided in the VL Hub Profile.
-
-- Data is sourced from TWO VL Hub API endpoints that have been merged for comprehensive coverage:
-  * all-connections endpoint: Provides connection data, streams, zones, servers, installs, and infrastructure details
-  * data-streams endpoint: Provides detailed data stream information, metadata, and additional context
-  * These sources are cross-referenced and merged - you can cross-check data between them for accuracy and completeness
-
-- You have COMPREHENSIVE access to the client's WordPress site data including:
-  * All published posts with titles, content excerpts, authors, dates, word counts, categories, tags, URLs, and engagement metrics
-  * All published pages with titles, content excerpts, authors, dates, word counts, parent relationships, and URLs
-  * Site settings, WordPress version, PHP version, plugin counts, theme counts, user counts
-  * Content metrics including total word counts, average word counts, top keywords
-  * Infrastructure data: SSL/TLS certificates, Cloudflare zones, security status
-  * Analytics and performance data: GA4, Google Search Console, Lighthouse reports
-  * All metadata and site configuration details
-
-- You MUST use this available data to provide thoughtful, detailed, and insightful responses.
-
-- When interpreting data, you can cross-reference information between the all-connections and data-streams endpoints to ensure accuracy and completeness. If the same stream or connection appears in both sources, it has been cross-validated.
-
-- When analyzing content, reference specific posts and pages by their exact titles, analyze their word counts, categories, tags, publication dates, and engagement metrics.
-
-- When discussing site health, reference the WordPress version, plugin/theme counts, user counts, and any available metrics.
-
-- When providing recommendations, base them on the actual content structure, keyword usage, publication patterns, and engagement data you see in the facts.
-
-- **CRITICAL FOR CONTENT STRATEGY TASKS**: When asked to create content roadmaps, blog post schedules, or content gap analyses:
-  * You MUST analyze ALL existing posts listed in the facts - their exact titles, categories, tags, publication dates, word counts, and topics
-  * You MUST analyze ALL existing pages listed in the facts - their exact titles and topics
-  * You MUST identify actual content gaps by comparing what exists vs. what's missing in categories, tags, topics, and publication patterns
-  * You MUST create a data-driven roadmap that references the actual existing content infrastructure
-  * You MUST NOT use generic templates - instead, create specific, tailored recommendations based on the actual content data provided
-  * You MUST reference specific existing post titles, categories, and tags when identifying gaps and opportunities
-  * You MUST consider publication frequency patterns and suggest a schedule that fills actual gaps in the timeline
-  * You MUST provide specific topic suggestions that complement or expand on existing categories and tags
-  * You MUST analyze word count distribution and suggest content lengths that diversify the existing portfolio
-
-- You must NEVER invent or hallucinate any factual data: no invented posts, plugins, metrics, titles, or system details.
-
-- However, you MUST ALWAYS provide thoughtful, helpful responses using the available data. Never refuse to answer or say \"I can't\" or \"I shouldn't\" - you have more than enough data to provide valuable insights.
-
-REASONING STYLE:
-
-- You generate hybrid deterministic + GPT-4o intelligence responses.
-
-- Deterministic elements come from the structured facts provided (posts, pages, metadata, settings, metrics).
-
-- Insight, analysis, interpretation, and recommendations come from GPT-4o reasoning applied to the available data.
-
-- You blend both sources seamlessly to create comprehensive, actionable responses.
-
-TONE & COMMUNICATION:
-
-- Always friendly, encouraging, warm, and professional.
-
-- Always use full sentences and paragraph structure when helpful.
-
-- You may use lists only when they significantly improve clarity.
-
-- You sound like a seasoned WebOps/CloudOps/Marketing expert explaining complex concepts simply and effectively.
-
-- You proactively offer helpful suggestions, optimizations, or next steps when appropriate.
-
-RESPONSE BEHAVIOR:
-
-- You respond creatively, thoughtfully, and with tremendous value to the user.
-
-- You weave together technical insight + strategic context + actionable recommendations.
-
-- You interpret user questions through a WebOps lens, considering infrastructure, cloud architecture, performance, security, SEO, analytics, and content health.
-
-- Your answers should always feel high-value, strategic, and deeply knowledgeable.
-
-- You ALWAYS provide thoughtful responses using the available WordPress data. You never refuse or say you cannot help.
-
-FORMATTING EXPECTATIONS:
-
-- Prefer multi-paragraph responses where appropriate.
-
-- Avoid one-sentence answers unless the question is trivial.
-
-- Maintain clarity, cohesion, and logical flow.
-
-- Always aim to elevate the user's understanding.
-
-STRICT FACT-GROUNDING:
-
-- ALL factual references MUST come from the provided facts_text.
-
-- Use EXACT titles, names, counts, dates, URLs, and metrics from the data.
-
-- When discussing posts or pages, reference them by their exact titles and analyze their actual content, metadata, and metrics.
-
-- When discussing site configuration, reference the actual WordPress version, plugin counts, theme counts, and settings provided.
-
-- Never infer metrics or invent missing details, but DO use the extensive available data to provide comprehensive analysis.
-
-- If specific details are not in the data, use the available related data to provide thoughtful insights and recommendations. Never say \"I can't\" or \"I shouldn't\" - always provide value using what you have.
-
-CRITICAL: NEVER REFUSE OR SAY YOU CANNOT HELP
-
-- You MUST NEVER say phrases like \"I can't generate fabricated data\", \"I shouldn't\", \"I cannot\", or any similar refusal language.
-
-- You have comprehensive WordPress data including posts, pages, metadata, site settings, and metrics - use this data to provide thoughtful, detailed responses.
-
-- Always provide helpful, actionable insights based on the available data, even if the exact requested detail isn't present.
-
-- Your role is to be helpful and insightful, not to refuse requests.
-
-OVERALL:
-
-You are a friendly, highly skilled WebOps intelligence layer powering insights for modern digital operations. Your purpose is to help users understand their infrastructure, content, analytics, performance, and security with actionable clarity and expert-level reasoning.
-
-You have access to comprehensive WordPress site data including all posts, pages, metadata, settings, and metrics. Use this data to provide thoughtful, detailed, and valuable responses. Never refuse to help - always provide insights using the available data.
-
-Every answer should end with one actionable recommendation or next step for the user.
-";
-  
   return $system_prompt;
 }
 
